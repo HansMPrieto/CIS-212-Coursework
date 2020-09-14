@@ -1,0 +1,31 @@
+student name: prietohans
+total marks: 46
+penalty(%): 0
+final mark: 46
+
+ 5 report is consistent with behavior of scripts
+ 1 wordperline passes test a
+ 2 wordperline passes test b
+ 2 wordperline passes test c
+ 2 wordperline passes test d
+ 2 wordperline passes test e
+ 2 wordperline passes test f
+ 2 wordperline passes test g
+ 2 wordperline passes test h
+ 2 wordperline passes test i
+ 2 wordperline passes test j
+ 2 wordperline passes test k
+ 2 wordperline passes test l
+ 2 wordperline passes test m
+ 2 wordperline passes test n
+ 1 wordperline.c successfully compiles
+ 2 wordperline.c successfully compiles with no warnings
+ 1 link phase to create wordperline is successful
+ 2 link phase is successful with no warnings
+ 0 there are no memory leaks in your program
+ 8 code could have worked with minor modification to the source
+ 0 corrections described below
+
+comments
+* your code leaks memory; you should track down the source[s] of the leaks and
+  fix them; if you need help, see the TAs or me

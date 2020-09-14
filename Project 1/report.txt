@@ -1,0 +1,6 @@
+Name: Hans Prieto
+
+Duck ID: hansp
+
+Current State of Solutions: 
+my solutions in parts[1-3] work correctly when executed on the file input and differed against the corresponding .out file. 

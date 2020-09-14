@@ -1,0 +1,31 @@
+student name: prietohans
+total marks: 49
+penalty(%): 0
+final mark: 49
+
+ 5 report is consistent with behavior of scripts
+ 1 sgrep passes test a
+ 2 sgrep passes test b
+ 2 sgrep passes test c
+ 2 sgrep passes test d
+ 2 sgrep passes test e
+ 3 sgrep passes test f
+ 2 sgrep passes test g
+ 4 sgrep passes test h
+ 3 sgrep passes test i
+ 3 sgrep passes test j
+ 3 sgrep passes test k
+ 3 sgrep passes test l
+ 5 sgrep passes test m
+ 1 sgrep.c successfully compiles
+ 1 sgrep.c successfully compiles with no warnings
+ 1 link phase to create sgrep is successful
+ 1 link phase is successful with no warnings
+ 0 there are no memory leaks in your program
+ 5 code could have worked with minor modification to the source
+ 0 corrections described below
+
+comments
+* the huge number of error messages from valgrind tells me that you are doing
+  something very wrong in your code. I suggest that you track down the
+  problem when you get a chance

@@ -1,0 +1,3568 @@
+\chapter{C programming on Linux}
+
+\section{The edit-compile-link-execute (ECLE) cycle}
+\index{ECLE cycle}
+Python is an interpreted language.
+You present blocks written in Python to the interpreter;
+it interprets the code, executing as it goes along.
+
+C and many other programming languages are \emph{not} interpreted.
+A programmer using these languages must perform the following steps:
+\begin{itemize}[noitemsep]
+\item use an \textbf{e}ditor or other tools to generate one or more files containing program fragments in
+that language; these are called \emph{source} files;
+\item \textbf{c}ompile/transform each of these files from source to a more binary representation;
+the tool used to perform this transformation is called a \emph{compiler}, and the binary representation
+for each source file is called an \emph{object} file;
+\item \textbf{l}ink together each of the object files, along with any code needed from system libraries, into
+a single executable program file; and, finally,
+\item \textbf{e}xecute the program file, with suitable arguments and inputs, to see if it performs correctly.
+\end{itemize}
+
+If the program does not execute correctly, you will need to edit one or more of the source files,
+compile, link, and execute again.
+Do this until the program executes correctly; thus, the \emph{ECLE} cycle.
+
+\subsection{\texttt{gcc} - the C compiler on Linux}
+The GNU Compiler Collection is a compilation system that enables you to compile source files written in
+\index{commands@\textbf{commands}!gcc}
+C, C++, Objective-C, Fortran, Ada and Go.
+This system has been adopted as part of Linux.
+
+\verb!gcc! is the name of the C compiler on Linux.
+\verb!gcc! has a large number of flags, only a few of which we will cover in this book.
+
+Suppose we have a source file named \verb!prog.c! that we have created using our favorite editor.
+Note that, by convention, C source files have a \verb!.c! extension.
+Now suppose that we wish to compile \verb!prog.c! into a binary object file.
+The command needed to do so is:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!$ gcc -c prog.c!\newline
+\normalsize
+\end{adjustwidth}
+The \verb!-c! flag tells \verb!gcc! to compile only (\verb!gcc! also performs the link task);
+if there are no errors in \verb!prog.c!, \verb!gcc!
+will leave the compilation results in a file named \verb!prog.o!.
+Note that \verb!.o! is the conventional extension for an object file.
+
+\verb!gcc! can also link object files into an executable program.
+Assuming that \verb!prog.c! contains all of the user-defined logic needed, then the following command
+will produce an executable program in a file named \verb!prog!:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!$ gcc -o prog prog.o!\newline
+\normalsize
+\end{adjustwidth}
+
+Finally, you can execute your program by typing the following command:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!$ ./prog!\newline
+\normalsize
+\end{adjustwidth}
+You may wonder why you have to type \verb!./prog!.
+Recall that \verb!bash! uses the \verb!PATH! environment variable to find the executable program file
+corresponding to the command you have typed.
+If you simply typed \verb!prog!, \verb!bash! would look in each of the directories found in \verb!PATH!.
+By typing a command with a slash(\verb!/!) in it, \verb!bash! does not search through those directories,
+instead simply executing the file as typed.
+And, as we recall from the section \ref{sec:dotanddotdot}, the directory \verb!'.'! simply means the current directory,
+so \verb!./prog! will cause the executable file named \verb!prog! in the current directory to be executed,
+and the \verb!/! in the name turns off the search by \verb!bash!.
+Of course, you could add \verb!.! to the front of \verb!PATH!, but this can sometimes cause trouble if
+you give your program an identical name to one of the standard programs provided in Linux.
+
+Having to invoke \verb!gcc! twice to build \verb!prog! may seem like one invocation too many.
+In fact, for simple programs like \verb!prog.c!, it can all be done in one command, as in:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!$ gcc -o prog prog.c!\newline
+\normalsize
+\end{adjustwidth}
+The presence of a \verb!.c! file in the argument list causes \verb!gcc! to first compile it into an object
+file, to then link that object file into the executable program, \emph{and} to then delete the object file.
+
+Most programs will consist of multiple source files, each providing different functionality (like different
+modules used in a Python program).
+As you use the ECLE cycle to debug your program, you seldom change all of the source files at once; usually,
+you need to change one source file to resolve the current bug that the program is exhibiting; this only
+requires that you compile that particular source file again, and then link all of the object files together into
+your executable program file.
+
+\label{sec:CFLAGS}
+If your C source file has language errors, \verb!gcc! will report these errors on standard error output.
+There are a large number of flags to \verb!gcc! that control the reporting of warnings regarding your usage
+of the C language; some of these warnings are indicative of poor programming practices that will likely lead
+to your program executing incorrectly.
+Decades of experience recommend that you specify \verb!-W -Wall! as compilation flags when compiling your
+source files, as these warning flags will do a reasonable job of reporting such poor programming practices.
+Therefore, we strongly recommend that your compile command lines look like:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!$ gcc -c -W -Wall prog.c!\newline
+\normalsize
+\end{adjustwidth}
+
+The next section describes a tool to help you with the ECLE cycle, automating the necessary recompiles and
+the relink of your program after you have made changes to source files.
+
+\subsection{\texttt{make} - a tool to help you with the ECLE cycle}
+\index{commands@\textbf{commands}!make}
+It should be clear that one can establish a set of dependencies between the files that make up your
+executable program.
+The executable program file depends upon the constituent object files; if one of them changes, then the
+program file must be regenerated by relinking the object files.
+Likewise, each object file depends upon its source file; if the source file has changed, then the
+object file must be recreated by recompiling the source file; since the object file is now changed, the
+executable program file must be recreated.
+Clearly, a tool that keeps track of these (and other) dependencies, and what actions are required to
+recreate a file that depends upon a file that has changed will be extremely useful.
+\verb!make! is such a tool.
+
+\verb!make! requires that you specify the dependencies between your files.
+It also requires that you specify what action to take to recreate a dependent file when one of the files
+upon which it depends has changed.
+Finally, it has built in rules for the most common types of actions (e.g., going from a \verb!.c! to a
+\verb!.o!).
+
+How can \verb!make! possibly work?
+Recall from Chapter 2 that the file system keeps metadata about each file, and that one such piece of
+metadata was the modification date/time for the file.
+Given a specification of the dependencies between your files, \verb!make! can determine if a dependent file
+needs to be recreated if the modification date of any of the files upon which the dependent file depends has
+a later modification date than the dependent file.
+Upon detection of such a situation, it then applies the action that you have specified for recreating
+the dependent file (or applies one of the built-in, implicit rules) to recreate the dependent file, which will, of
+course, now have a modification date later than any of the files upon which it depends.
+
+By convention, we keep all source files for a related set of programs in a separate directory.
+In that directory, a file named \verb!Makefile! contains the specification of the file dependencies,
+\index{make@\textbf{make}!Makefile}
+and the actions that should be taken.
+Let's look at an example \verb!Makefile! for \verb!prog!:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!CFLAGS=-W -Wall!\newline
+\verb!OBJECTS=prog.o!\newline
+\verb!!\newline
+\verb!prog: $(OBJECTS)!\newline
+\verb!        gcc -o prog $(OBJECTS)!\newline
+\verb!!\newline
+\verb!prog.o: prog.c!\newline
+\normalsize
+\end{adjustwidth}
+What does this mean? Let's look at each line in turn.
+\begin{itemize}[noitemsep]
+\item \verb!CFLAGS=-W -Wall!\newline
+\index{make@\textbf{make}!CFLAGS variable}
+The built-in rules for converting from a C source file to a C object file knows to look for a variable named
+\verb!CFLAGS!; if this is defined, it will use it in the \verb!gcc! command to compile a source file into
+its object file.
+\item \verb!OBJECTS=prog.o!\newline
+\index{make@\textbf{make}!OBJECTS variable}
+It is good practice to create a variable named \verb!OBJECTS! for all of the object files that must
+be linked together to create our program.
+In this case, there is only one; if there had been other files, the entire set would have been listed as
+part of the definition of \verb!OBJECTS!, with the files separated by blanks.
+\item \verb!prog: $(OBJECTS)!\newline
+\verb!        gcc -o prog $(OBJECTS)!\newline
+The first line says that \verb!prog! depends upon the definition of \verb!OBJECTS!; since \verb!OBJECTS!
+is defined as \verb!prog.o!, this means that \verb!prog! depends upon \verb!prog.o!.
+\verb!make! checks the modification date for \verb!prog.o!; if the file does not exist, it looks for
+a rule in the Makefile to see how to create \verb!prog.o!, and executes that rule.
+Armed with the modification date for \verb!prog.o!, it compares it to the modification date for
+\verb!prog!, and if it is newer, executes the second line, which is the rule used to update \verb!prog!.
+Note that the action lines must be indented by a TAB character; there can be multiple action lines, each
+indented by a TAB; an empty line indicates the end of the action lines associated with that rule.
+\item \verb!prog.o: prog.c!\newline
+This indicates that \verb!prog.o! depends upon \verb!prog.c!. The absence of a rule for updating
+\verb!prog.o! tells \verb!make! to use its built-in rule.
+\index{make@\textbf{make}!built-in rules}
+\end{itemize}
+
+The lines starting with \verb!prog:! and \verb!prog.o:! define \emph{targets}.
+\index{make@\textbf{make}!target}
+You can ask \verb!make! to ``make'' one of the targets defined in a \verb!Makefile! by typing the following
+command to \verb!bash!:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!$ make name_of_target!\newline
+\normalsize
+\end{adjustwidth}
+In our particular case, we could type any of the following commands:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!$ make prog.o!\newline
+\verb!$ make prog!\newline
+\verb!$ make!\newline
+\normalsize
+\end{adjustwidth}
+The first command asks \verb!make! to compile \verb!prog.c! to produce \verb!prog.o! if \verb!prog.c! is newer than \verb!prog.o!.
+The second command asks \verb!make! to link \verb!prog.o! to produce \verb!prog! if \verb!prog.o! is newer
+than \verb!prog!; as a side effect, if \verb!prog.c! is newer than \verb!prog.o!, \verb!make! would compile
+\verb!prog.c! first, and then would have to recreate \verb!prog!, since \verb!prog.o! has to be newer than
+\verb!prog! in that case.
+The third command asks \verb!make! to produce the first target that it finds, top to bottom,
+in \verb!Makefile!; in this case, it would recreate \verb!prog! if necessary.
+
+If all of our programs were just a single source file, like \verb!prog!, \verb!make! might seem like
+overkill.
+Usually your programs will consists of several source files, and need to link to special libraries; in such
+cases, capturing the knowledge of the dependencies between files and the actions to take to update a
+target if it is older than any of the files upon which it depends in a \verb!Makefile!, and using \verb!make!
+to make sure our targets are up-to-date is a definite benefit.
+Let's assume that the code in \verb!prog.c! refers to functions defined in \verb!a.c! and \verb!b.c!.
+Furthermore, let's assume that some global definitions needed by \verb!a.c! and \verb!b.c! are in
+\verb!globals.h!.\footnote{We will see later how source code can ``include'' information from another
+file, thus establishing a dependency of the compiled object file upon the ``included'' file.}
+This yields the following dependency graph between source files, object files, and program files.
+\begin{center}
+\includegraphics[scale=0.3]{c/depgraph}
+\end{center}
+
+The following \verb!Makefile! captures this dependency graph along with any non-built-in rules needed
+to update a target if it is older than any of its dependencies:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!CFLAGS=-W -Wall!\newline
+\verb!OBJECTS=prog.o a.o b.o!\newline
+\verb!!\newline
+\verb!prog: $(OBJECTS)!\newline
+\verb!        gcc -o prog $(OBJECTS)!\newline
+\verb!!\newline
+\verb!prog.o: prog.c!\newline
+\verb!a.o: a.c globals.h!\newline
+\verb!b.o: b.c globals.h!\newline
+\normalsize
+\end{adjustwidth}
+What has changed from our previous \verb!Makefile!?
+We have augmented the definition for \verb!OBJECTS! to include \verb!a.o! and \verb!b.o!, and we have
+added dependencies for these two additional object files.
+
+Let's summarize what we have learned so far:
+\begin{itemize}[noitemsep]
+\item we store all of the source, object, and program files for a particular program in its own
+directory;
+\item we create a file named \verb!Makefile! that captures the dependencies between source, object, and
+program files, and provides custom rules needed to update a target if it needs to be updated;
+\item we define a variable named \verb!CFLAGS! at the top of the makefile to specify some of the
+command arguments needed when compiling a C source file to its object file;
+\item we define a variable named \verb!OBJECTS! at the top of the makefile to collect together the
+object file names needed to build our program;
+\item the first target shows the dependency of our program file upon the objects, and provides the
+appropriate \verb!gcc! command to link those together to create our program file;
+\item this is followed by a dependency line for each object file, showing the dependency upon the
+relevant source file \emph{and} any files ``included'' by that source file;
+\item we do not provide rules to perform the compilation, instead relying upon the built-in rule within
+\verb!make! for compiling C source files.
+\end{itemize}
+
+There are many other things one can specify in the \verb!Makefile! which are beyond the scope of this
+book.
+This final section describes a couple of the more common things you will see in makefiles, and which you
+are encouraged to add to your makefiles, when appropriate.
+As with our previous discussion, we will motivate the discussion with an example \verb!Makefile!.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!CFLAGS=-W -Wall!\newline
+\verb!OBJECTS=a.o b.o!\newline
+\verb!PROGRAMS=prog1 prog2!\newline
+\verb!!\newline
+\verb!all: $(PROGRAMS)!\newline
+\verb!!\newline
+\verb!prog1: prog1.o $(OBJECTS)!\newline
+\verb!        gcc -o prog1 prog1.o $(OBJECTS)!\newline
+\verb!!\newline
+\verb!prog2: prog2.o $(OBJECTS)!\newline
+\verb!        gcc -o prog2 prog2.o $(OBJECTS)!\newline
+\verb!!\newline
+\verb!prog1.o: prog1.c!\newline
+\verb!prog2.o: prog2.c!\newline
+\verb!a.o: a.c globals.h!\newline
+\verb!b.o: b.c globals.h!\newline
+\verb!!\newline
+\verb!clean:!\newline
+\verb!        rm -f prog1.o prog2.o $(OBJECTS) $(PROGRAMS)!\newline
+\normalsize
+\end{adjustwidth}
+
+This is a slightly more complicated use case - we have two programs, \verb!prog1! and \verb!prog2!, that use
+functions defined in \verb!a.c! and \verb!b.c!.
+It makes sense to build both programs in the same directory.
+Thus, we have made the following changes to the previous \verb!Makefile!:
+\begin{itemize}[noitemsep]
+\item \verb!OBJECTS=a.o b.o!\newline
+we have removed \verb!prog.o! from the variable \verb!OBJECTS!, as we only want to capture here those
+object files needed by both programs;
+\index{make@\textbf{make}!PROGRAMS variable}
+\item \verb!PROGRAMS=prog1 prog2!\newline
+we have added a variable named \verb!PROGRAMS! in which we can record all of the programs that can
+be built by this \verb!Makefile!; we didn't have to do this, but it is good practice, especially as in the
+future there is every likelihood that you will add one or more new programs to this set;
+\index{make@\textbf{make}!all target}
+\item \verb!all: $(PROGRAMS)!\newline
+we define the first target to be dependent upon all programs \emph{without} an update rule; if you
+type \verb!make! or \verb!make all!, this will cause \verb!make! to check that all of the programs
+are up-to-date, and if not, bring them up-to-date;
+\item \verb!prog1: prog1.o $(OBJECTS)!\newline
+\verb!        gcc -o prog1 prog1.o $(OBJECTS)!\newline
+the old dependency and rule for \verb!prog! is modified to build \verb!prog1!; note that since we removed
+\verb!prog.o! from \verb!OBJECTS!, we have to include \verb!prog1.o! in the dependency line and the
+rule; we also add an equivalent target and rule for \verb!prog2!;
+\item \verb!prog1.o: prog1.c!\newline
+\verb!prog2.o: prog2.c!\newline
+we obviously need to replace the old target for \verb!prog.o! by equivalent targets for \verb!prog1.o! and
+\verb!prog2.o!;
+\item \verb!clean:!\newline
+\index{make@\textbf{make}!clean target}
+\verb!        rm -f prog1.o prog2.o $(OBJECTS) $(PROGRAMS)!\newline
+finally, it is common to add a target named \verb!clean!; when you invoke \verb!make clean!, it executes
+the \verb!rm! command to remove all of the object files and the program files, leaving only the source
+files and the makefile; note the \verb!-f! flag to \verb!rm! - this has the effect of preventing \verb!rm!
+from asking you if ``you are really sure'' about removing the specified files; it also prevents it from
+warning you if any of the specified files are not found.
+\end{itemize}
+
+Finally, there is often an \verb!install! target in makefiles; we will revisit this at the end of this chapter.
+\index{make@\textbf{make}!install target}
+
+\section{A simple, example program}
+\label{sec:approxpi}
+Recall that in section 3.1 we introduced a simple program that approximates $\pi$ as a truncated infinite
+series.
+The code below is a C version of this program.
+\index{C@\textbf{C}!$\pi$ computation example}
+\begin{adjustwidth}{1cm}{}
+\small
+\verbatiminput{"c/approx_pi.c"}
+\normalsize
+\end{adjustwidth}
+
+As you can see, there are a number of similarities between the Python and C source files, as well as a
+number of differences.
+The following describes these similarities and differences.
+
+\begin{itemize}[noitemsep]
+\item The beginning of the program is devoted to accessing functions and values from other files/modules.
+Python requires you to \verb!import math! in order to access the square root function, the floating point
+absolute value function, and the value of $\pi$; it also requires you to \verb!import sys! in order to access
+the command arguments.
+
+C requires you to \verb!#include <math.h>! in order to access the square root function,
+the floating point absolute value function, and the value of $\pi$ (denoted \verb!M_PI!);
+C does not have a syntactic representation
+for exponentiation, so \verb!math.h! also defines a function \verb!double pow(double x, double y)! which
+raises \verb!x! to the \verb!y!\textsuperscript{th} power, returning it as a \verb!double!.
+Note that, in C, \verb!double! is the default representation of a floating point number.
+
+C does not require a special include to access arguments, since the signature for \verb!main()! has the
+number of arguments and the arguments themselves passed in as values; the \verb!char *argv[]! argument
+simply states that \verb!argv! is a list of character strings, just as \verb!sys.argv! is in Python.
+
+C also requires you to \verb!#include <stdlib.h>! in order to access the \verb!atoi()! function;
+this converts a string representation of a number into an integer, just as the \verb!int()! built-in
+function does in Python.
+
+Finally, C requires you to \verb!#include <stdio.h>! in order to access the \verb!printf()! function; unlike
+\index{C@\textbf{C}!stdio!printf()}
+Python, C does not have a built-in function to print data on standard output. Additionally, \verb!printf()!
+acts like a combination of Python's \verb!print()! function and the \verb!format()! method on a
+string.
+\item C requires that the return type of a function be defined in its signature; additionally, sound use of
+C demands that you provide the type of each argument to a function.
+
+Unlike Python, where all lines of a block must be at the same indentation level, C uses curly braces
+(\verb!{}!) to delimit a block.
+Thus, the entire body of \verb!approx_pi()! is within a pair of curly braces; the body of the \verb!for!
+loop in the function is also within a nested pair of curly braces.
+
+C requires that all variables be declared before use.
+Thus, immediately after the signature line for \verb!approx_pi()!, we declare variables named \verb!sum!,
+which is a \verb!double! \emph{and} initialized to \verb!0.0!, and \verb!i!, which is an \verb!int!.
+
+Note that immediately after the \verb!for()! statement, we also declare \verb!di!, which is a \verb!double!
+and is assigned the value of \verb!i! converted to a \verb!double!.
+Explicit casts from one type to another are done as shown.
+\verb!di! is only defined in the body of the \verb!for()! loop, not outside of it.
+
+The computation of \verb!sum! is identical to our Python code, except that each occurrence of \verb!x**y!
+had to be converted to an invocation of \verb!pow(x, y)!.
+The \verb!return! is also identical.
+
+Note that each statement in the function is terminated by a semicolon (\verb!;!).
+This is because C allows statements to span multiple lines, as well as allowing multiple statements
+to be placed on a single line.
+\item \verb!main()! is very similar between the two languages.
+Of course, in C we need to declare each variable before use.
+
+The call to \verb!printf()! looks a bit strange; the first argument is like the string template upon
+\index{C@\textbf{C}!stdio!printf()}
+which we invoked the \verb!format()! method in our Python code, although \verb!printf()! uses percent signs
+to specify where an argument value should be placed (unlike the curly braces used in Python).
+Another difference is that there is no format specifier equivalent to \verb!{:%}!, thus we had to
+multiply the fractional difference by \verb!100!; finally, since \verb!%! is the special character
+in the format string for \verb!printf()!, we had to double it in order for it to print out a percent sign.
+\end{itemize}
+
+\subsection{Do they give the same results?}
+First, let's build a \verb!Makefile! to construct our \verb!approx_pi! executable.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!CFLAGS=-W -Wall!\newline
+\verb!OBJECTS=approx_pi.o!\newline
+\verb!LIBRARIES=-lm!\newline
+\verb!!\newline
+\verb!approx_pi: $(OBJECTS)!\newline
+\verb!        gcc -o approx_pi $(OBJECTS) $(LIBRARIES)!\newline
+\verb!!\newline
+\verb!approx_pi.o: approx_pi.c!\newline
+\verb!!\newline
+\verb!clean:!\newline
+\verb!        rm -f approx_pi $(OBJECTS)!\newline
+\normalsize
+\end{adjustwidth}
+Note that we have added another variable, \verb!LIBRARIES!, to the
+\index{make@\textbf{make}!LIBRARIES variable}
+makefile.
+To access the library of math routines, one must add \verb!-lm! to the
+\verb!gcc! command that builds \verb!approx_pi!.
+By defining it as a variable at the top of the makefile, it is easy for you
+to remember which libraries you are using and for you to add additional
+libraries easily if your code grows to use other libraries.
+Routines accessed from \verb!<stdio.h>! and \verb!<stdlib.h>! are resolved
+from the default system library that \verb!gcc! consults whenever it is
+linking together a program.
+
+Now, let's build \verb!approx_pi!, and then compare its output
+with the output from \verb!approx_pi.py!.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!$ make!\newline
+\verb!cc -W -Wall   -c -o approx_pi.o approx_pi.c!\newline
+\verb!gcc -o approx_pi approx_pi.o -lm!\newline
+\verb!$ ls -l approx_pi*!\newline
+\verb!-rwxr-xr-x 1 me me 8360 Jul 30 11:49 approx_pi!\newline
+\verb!$ python3 approx_pi.py 5!\newline
+\verb!pi[5] = 3.1426047456630846, error = 0.03222%!\newline
+\verb!$ ./approx_pi 5!\newline
+\verb!pi[5] = 3.1426047456630846, error = 0.03222%!\newline
+\normalsize
+\end{adjustwidth}
+While these look the same, we can use a pipeline and \verb!diff! to be completely
+sure, as in the following.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!$ python3 approx_pi.py 5 >tmp.out!\newline
+\verb!$ ./approx_pi 5 | diff - tmp.out!\newline
+\verb!$ rm -f tmp.out!\newline
+\normalsize
+\end{adjustwidth}
+Here we have captured the output from the Python script into \verb!tmp.out!.
+The subsequent pipeline executes \verb!approx_pi! with the same number of terms
+of the summation, piping the output to \verb!diff!.
+The bare hyphen (\verb!-!) as an argument to \verb!diff! tells it to use its
+standard input; thus, \verb!diff! compares its standard input to \verb!tmp.out!.
+The lack of output from \verb!diff! indicates that the two files are exactly the
+same.
+We then remove \verb!tmp.out! as good file system hygiene.
+
+\section{Variables, types, operators, and expressions}
+\subsection{Variable names}
+\index{C@\textbf{C}!variables}
+\index{C@\textbf{C}!variables!names}
+The names of variables in C are made up of alphabetic letters, digits, and the underscore (\verb!_!)
+character.
+The first character of a name must be a letter or an underscore;
+you are urged \emph{not} to begin variable names with an underscore as system library routines often use
+the underscore as the first letter to avoid collisions with names you define.
+Upper and lower case letters are distinct.
+Conventional practice is to use all upper case for defined symbolic constants (e.g., \verb!BUFFER_SIZE!).
+Conventions for variables vary:
+\begin{itemize}[noitemsep]
+\item all lower case: in this situation, if you have a variable name with two or more words, use the
+underscore to separate the words (e.g., \verb!modification_time!);
+\item mixed case/start lower: for single word variable names, all lower case; for multi-word variable
+names, use ``camel case'' - i.e., capitalize the first letter of the 2\textsuperscript{nd} and subsequent
+words (e.g., \verb!modificationTime!);
+\item mixed case/start upper: as we shall see in the next chapter, we will capitalize the first letter of
+each word in the name for an abstract data type (e.g., \verb!PriorityQueue!).
+\end{itemize}
+
+At least the first 31 characters of a variable name are significant (more on Linux, but if you are going to
+port your programs to other C compilers on other operating systems, the language standard only guarantees
+31.)
+Keywords in the language, such as \verb!if!, \verb!else!, \verb!int!, \verb!float!, ... are reserved
+words and must be in lower case.
+
+In this book, we will use mixed case/start lower and mixed case/start upper in our examples.
+
+Variables must be declared before they are used, unlike in Python.
+In order to declare variables, we first need to understand the data types that C supports.
+
+\subsection{Basic data types}
+\index{C@\textbf{C}!data types}
+\index{C@\textbf{C}!basic data types}
+C has only a few basic data types:
+\begin{itemize}[noitemsep]
+\item \verb!char! - this is a single byte, capable of holding one character in the local character set;
+\index{C@\textbf{C}!basic data types!char}
+\item \verb!int! - this is an integer, typically reflecting the natural size of integers on the machine;
+\index{C@\textbf{C}!basic data types!int}
+\item \verb!float! - single-precision floating point;
+\index{C@\textbf{C}!basic data types!float}
+\item \verb!double! - double-precision floating point.
+\index{C@\textbf{C}!basic data types!double}
+\end{itemize}
+\verb!short! and \verb!long! qualifiers apply to integers; for example \verb!short int i! or
+\index{C@\textbf{C}!basic data types!short qualifier}
+\verb!long int counter!, or even \verb!long long int packetCount!; note that these examples
+\index{C@\textbf{C}!basic data types!long qualifier}
+show how one declares the type of a variable in your program.
+The name \verb!int! can be omitted when using the \verb!short! or \verb!long! qualifiers.
+
+As described above, the actual precision for an \verb!int! can vary from machine to machine, thus making
+it hard to write completely portable source code.
+Thus, the standard has specified that the following are true:
+\begin{itemize}[noitemsep]
+\item \verb!short int! is at least 16 bits of precision;
+\item \verb!long int! is at least 32 bits of precision;
+\item \verb!long long int! is at least 64 bits of precision.
+\end{itemize}
+
+\verb!signed! and \verb!unsigned! qualifiers can be applied to \verb!char! or any integer type:
+\index{C@\textbf{C}!basic data types!signed qualifier}
+\index{C@\textbf{C}!basic data types!unsigned qualifier}
+\begin{itemize}[noitemsep]
+\item unsigned numbers are always positive or zero, obeying the laws of arithmetic modulo
+$2^n$, where $n$ is the number of bits in the type;
+\item signed numbers vary from $2^{-(n-1)}$ to $2^{(n-1)} - 1$, obeying the laws of 2s-complement arithmetic.
+\end{itemize}
+
+\verb!long double! specifies extended-precision floating point; it is not often used, and will not be used in this book.
+There are standard header files, \verb!<limits.h>! and \verb!<float.h>!, that contain symbolic constants for
+all of these sizes, along with other properties of the machine and compiler.
+
+\subsection{Structured types}
+\index{C@\textbf{C}!structured data types}
+\index{C@\textbf{C}!structured data types!arrays}
+\label{sec:arraytype}
+C supports the creation of arrays of a given type, accessed via indexing.
+For example, one would declare an array of \texttt{25} integers as follows:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int myArray[25];!\newline
+\normalsize
+\end{adjustwidth}
+Arrays indices start at \verb!0!; thus, the legal indices for \verb!myArray! above are \verb!0 .. 24!.
+One refers to the element at index \verb!10! as \verb!myArray[10]!.
+
+C does \emph{not} have a special built-in type for \emph{strings}.
+\index{C@\textbf{C}!structured data types!strings}
+Instead, a \emph{string} is an array of characters, as in
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!char buf[1024];!\newline
+\normalsize
+\end{adjustwidth}
+We will discuss strings in more detail later in the chapter.
+
+C also supports the definition of \emph{structures}, similar to data-only classes in Python.
+We will discuss structures later in this chapter.
+
+\subsection{Constants/literals}
+You will need to be able to use literal values for different types in your program; these are usually
+\index{C@\textbf{C}!constants}
+\index{C@\textbf{C}!literals}
+termed \emph{constants} in C.
+The following table indicates how to express constant integer values for different integer types.
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+signed integer & \texttt{int} & \texttt{1234}\\
+signed long integer & \texttt{long} & \texttt{1234L}\\
+signed long long integer & \texttt{long long} & \texttt{1234LL}\\
+unsigned integer & \texttt{unsigned} & \texttt{1234U}\\
+unsigned long integer & \texttt{unsigned long} & \texttt{1234UL}\\
+unsigned long long integer & \texttt{unsigned long long} & \texttt{1234ULL}\\
+\hline
+\end{tabular}
+\end{center}
+
+Floating point constants contain a decimal point or an exponent or both; the type of the constant is
+\verb!double! unless a suffix is provided.
+\begin{center}
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+single-precision floating point & \texttt{float} & \texttt{123.4f} & \texttt{1e-2f} & \texttt{1.2e7f}\\
+double-precision floating point & \texttt{double} & \texttt{123.4} & \texttt{1e-2} & \texttt{1.2e7}\\
+extended-precision floating point & \texttt{long double} & \texttt{123.4L} & \texttt{1e-2L} & \texttt{1.2e7L}\\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Character and string constants}
+A character constant is an integer, written as a single character within single quotes, such as \verb!'x'!.
+Escape sequences, such as \verb!'\n'!, are character constants.
+The following table shows the legal escape sequence character constants.
+\begin{center}
+\begin{tabular}{|l|l||l|l|}
+\hline
+\texttt{\textbackslash{a}} & alert (bell) & \texttt{\textbackslash{b}} & backspace\\
+\texttt{\textbackslash{f}} & formfeed & \texttt{\textbackslash{n}} & newline (end of line)\\
+\texttt{\textbackslash{r}} & carriage return & \texttt{\textbackslash{t}} & horizontal tab\\
+\texttt{\textbackslash{v}} & vertical tab & \texttt{\textbackslash\textbackslash} & backslash\\
+\texttt{\textbackslash{?}} & question mark & \texttt{\textbackslash{'}} & single quote\\
+\texttt{\textbackslash{"}} & double quote & \texttt{\textbackslash{0}} & null (end of string)\\
+\hline
+\end{tabular}
+\end{center}
+
+A string constant/literal is a sequence of 0 or more characters surrounded by double
+quotes (\verb!"!); the quotes are \emph{not} part of the string, only serving to
+delimit the string contents.
+As described previously, a string is an array of characters;
+a string constant is just such an array of characters, with a null character
+(\verb!'\0'!) at the end.
+
+It is important to understand the difference between character and string
+literals.
+\verb!'x'! is an integer, representing the numerical value of the letter \verb!x!
+in the machine's character set.
+\verb!"x"! is an array of characters, 2 characters long, consisting of \verb!'x'!
+followed by \verb!'\0'!.
+
+Given what we have seen so far, we can write a simple function that calculates
+the length of a string.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int strlen(char s[]) {!\newline
+\verb!    int i, len;!\newline
+\verb!!\newline
+\verb!    len = 0;!\newline
+\verb^    for (i = 0; s[i] != '\0'; i = i + 1) {^\newline
+\verb!        len += 1;!\newline
+\verb!    }!\newline
+\verb!    return len;!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+
+You should convince yourself that this function works correctly if passed
+an empty string (i.e., \verb!""!).
+The production version of \verb!strlen()!, along with many other useful
+\index{C@\textbf{C}!string functions!strlen}
+string-manipulation functions, are defined in \verb!<string.h>! and can be
+used if you \verb!#include <string.h>! in your source files.
+
+\subsection{Variable declarations}
+\index{C@\textbf{C}!variables!declarations}
+All variables must be declared before use.
+Each declaration specifies a type, and associates one or more variable
+names with that type; for example:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int first, last, step;!\newline
+\verb!char c, buf[1024];!\newline
+\normalsize
+\end{adjustwidth}
+
+A variable may be initialized in its declaration, as in:
+\index{C@\textbf{C}!variables!initialization}
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int formatChar = '%';!\newline
+\verb!int bufferSize = MAXBUF + 1;!\newline
+\verb!char keyword[] = "expedite";!\newline
+\normalsize
+\end{adjustwidth}
+The last example above shows that one does not need to specify the size of
+a character array if you are initializing it with a string literal.
+
+\subsection{Variable scope}
+\index{C@\textbf{C}!variables!scope}
+Variables can be declared outside of any function definition, in which case they
+are referred to as \emph{external} variables.
+\index{C@\textbf{C}!variables!scope!external}
+External variables can be accessed by \emph{any} code in any function in any source
+file that is linked together with the file that declares that external
+variable.
+For external variables, initialization is done only once, before the program
+starts to execute; as a result, the initializer must be a constant expression.
+If an external variable is not explicitly initialized, it is initialized to zero
+by default.
+
+Variables declared at the top of a block (after an opening left curly brace
+\verb!{!) are referred to as \emph{automatic} variables.
+\index{C@\textbf{C}!!variables!scope!automatic}
+An explicitly initialized automatic variable is initialized each time the
+defining block is entered; the initializer can be any expression.
+An automatic variable for which there is no explicit initializer has an undefined
+value.
+
+The qualifier \verb!const! can be applied to the declaration of any variable to
+\index{C@\textbf{C}!variables!const}
+indicated that its value will not change, as in:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!const char errmsg[] = "processing error";!\newline
+\normalsize
+\end{adjustwidth}
+\verb!const! can also be used with arguments to functions to indicate that
+the function does not change that argument, as in:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int strlen(const char str[]);!\newline
+\normalsize
+\end{adjustwidth}
+
+\subsection{Arithmetic operators}
+\index{C@\textbf{C}!arithmetic operators}
+The binary operators \verb!+!, \verb!-!, \verb!*!, and \verb!/! are defined for
+both integer and floating point types; the modulus operator, \verb!%!, is also
+defined for integer types.
+For integers x and y, \verb!x / y! yields the integral number of times that
+\verb!y! goes into \verb!x!, while \verb!x % y! yields the remainder from
+that division.
+Or more succinctly, \verb!y * (x / y) + (x % y)! is identical to \verb!x!.
+
+\subsection{Relational and logical operators}
+\index{C@\textbf{C}!relational operators}
+\index{C@\textbf{C}!logical operators}
+C does not possess a Boolean type.
+C interprets an integer value of 0 as false, and any integer value that is
+\emph{not} 0 as true.
+The relational and logical operators described below return 1 when the
+result is true, 0 when false.
+
+The following comparison operators, when used with numeric types, generate boolean values:
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\texttt{x \textless~y} & x is strictly less than y\\
+\texttt{x \textless{=} y} & x is less than or equal to y\\
+\texttt{x \textgreater~y} & x is strictly greater than y\\
+\texttt{x \textgreater{=} y} & x is greater than or equal to y\\
+\texttt{x == y} & x is equal to y\\
+\texttt{x != y} & x is not equal to y\\
+\hline
+\end{tabular}
+\end{center}
+
+Boolean values can be combined using the usual boolean operators:
+\begin{center}
+\begin{tabular}{|c|l|p{6cm}|}
+\hline
+\texttt{x || y} & if x is \texttt{False}, then y, else x & y is only evaluated if x is \texttt{False}\\
+\texttt{x \&\& y} & if x is \texttt{False}, then x, else y & y is only evaluated if x is \texttt{True}\\
+\texttt{!x} & if x is \texttt{False}, then \texttt{True}, else \texttt{False} & has lower priority than non-Boolean operators, so \texttt{!a == b} is interpreted as \texttt{!(a == b)}\\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Type conversions}
+\label{typeconversions}
+\index{C@\textbf{C}!type conversions}
+When an operator has operands of different types, they are converted to a
+common type according to a small number of rules.
+In general, the only automatic conversions are those that convert a ``narrower''
+operand into a ``wider'' one without losing information,
+such as converting an integer to floating point in an expression like
+\verb!f + i!.
+
+Expressions that do not make sense, like using a floating point value as an
+index into an array, are illegal, and will generate compiler errors.
+Expressions that might lose information, such as assigning a wider integer type
+to a narrower one, are \emph{not} illegal, but will generate a warning from
+the compiler to alert you to the potential danger in doing so.
+
+Of particular importance is to note that a \verb!char! is just a small integer,
+so, as unusual as it may seem, \verb!char! variables and constants may be
+freely used in arithmetic expressions.
+One must exercise caution, though, as many such uses make assumptions about
+contiguity of sequences of digits or letters, or about the relationship between
+lower and upper case letters.
+It is much safer to rely upon functions in \verb!<ctype.h>! for performing
+such manipulations: \verb!isalnum()!, \verb!isalpha()!, \verb!iscntrl()!,
+\verb!isdigit()!, \verb!isgraph()!, \verb!islower()!, \verb!isprint()!,
+\verb!ispunct()!, \verb!isspace()!, \verb!isupper()!, \verb!isxdigit()!,
+\verb!tolower()!, and \verb!toupper()!.
+
+If a binary operator has operands of different types, the ``narrower'' type is
+promoted to the ``wider'' type before the operation proceeds, and the result is
+of the ``wider'' type.
+If there are no unsigned operands, the following informal rules are followed:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!if either operand is long double!\newline
+\verb!    convert the other to long double!\newline
+\verb!else if either operand is double!\newline
+\verb!    convert the other to double!\newline
+\verb!else if either operand is float!\newline
+\verb!    convert the other to float!\newline
+\verb!else!\newline
+\verb!    convert char and short to int!\newline
+\verb!    if either operand is long long!\newline
+\verb!        convert the other to long long!\newline
+\verb!    else if either operand is long!\newline
+\verb!        convert the other to long!\newline
+\normalsize
+\end{adjustwidth}
+
+Conversions take place across assignments; the value of the right hand
+side is converted to the type of the left hand side, which is the type
+of the result; ``wider'' integers are converted to ``narrower'' ones by dropping
+the excess high order bits.
+Floating point to integer conversions cause truncation of any fractional part.
+
+You can avoid depending upon implicit conversions by explicitly coercing the
+result of an expression using a \emph{cast}; these are of the form
+\verb!(!\textit{type-name}\verb!) !\textit{expression}.
+The result of \textit{expression} is converted to \textit{type-name} using
+the type conversions rules.
+For example, given an integer \verb!N!, we take its square root
+by invoking \verb!sqrt((double)N)!.
+In this case, the compiler converts the integral value of \verb!N! to a
+\verb!double! before invoking \verb!sqrt()!.
+The cast produces the value of \verb!N! of the proper type; \verb!N! itself is
+not altered.
+
+\subsection{Increment and decrement operators}
+\index{C@\textbf{C}!variables!increment operator}
+\index{C@\textbf{C}!variables!decrement operator}
+Incrementing and decrementing variables happens so often in C programs that there
+is special syntax for it.
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\texttt{++x} & adds \texttt{1} to \texttt{x} before returning its value\\
+\texttt{x++} & adds \texttt{1} to \texttt{x} after returning its value\\
+\texttt{\textminus\textminus{x}} & subtracts \texttt{1} from \texttt{x} before returning its value\\
+\texttt{x\textminus\textminus} & subtracts \texttt{1} from \texttt{x} after returning its value\\
+\hline
+\end{tabular}
+\end{center}
+
+Consider the following code fragment:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int x, y, n = 5;!\newline
+\verb!!\newline
+\verb!x = n++;!\newline
+\verb!y = ++n!\newline
+\verb!printf("%d %d %d\n", n, x, y);!\newline
+\normalsize
+\end{adjustwidth}
+What do you think will be printed out?
+
+\verb!n! starts out as \verb!5!.
+\verb!x = n++! says to assign the current value of \verb!n! to \verb!x!, then
+increment \verb!n!; this leaves \verb!x! with a value of \verb!5!, and \verb!n!
+with a value of \verb!6!.
+\verb!y = ++n! says to increment \verb!n!, and then assign the value of \verb!n!
+to \verb!y!; this leaves \verb!n! with a value of \verb!7!, and \verb!y! with a
+value of \verb!7!.
+Thus, when \verb!printf()! is invoked, we should see the following on standard
+\index{C@\textbf{C}!stdio!printf()}
+output:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!7 5 7!\newline
+\normalsize
+\end{adjustwidth}
+
+Postfix autoincrement (\verb!x++!) is often used when assembling strings in a
+character array, as in:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!if (c == '\n')!\newline
+\verb!    buf[i++] = c;!\newline
+\normalsize
+\end{adjustwidth}
+It is also used with pointers, which will be discussed later in this chapter.
+
+\subsection{Assignments and assignment operators}
+\index{C@\textbf{C}!variables!assignments}
+Assignment of the value of an expression to a variable has the same syntax as
+for Python, except for the required semicolon at the end.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!variable = expression;!\newline
+\normalsize
+\end{adjustwidth}
+The entire assignment statement is also an expression, and returns a value -
+i.e., the value that was assigned to the variable.
+As a result, the following types of statements are not only legal, are are
+examples of efficient and elegant C source:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!var1 = var2 = expression;!\newline
+\verb^if ((status = fetch(...)) != EOF) ...^\newline
+\normalsize
+\end{adjustwidth}
+The first example above simply shows that one can assign the same value to
+several variables in a single line; this statement is processed right to left -
+i.e., \verb!expression! is evaluated and assigned to \verb!var2!. The value of
+that assignment is the value of \verb!expression!, and this value is assigned to
+\verb!var1!.
+The second example shows invocation of the function \verb!fetch()!, assigning
+its returned value to \verb!status!; the value of this assignment is then
+compared to \verb!EOF! to conditionally execute the body of the \verb!if!
+statement.
+
+Besides normal assignment, it is often the case that one wants to evaluate an
+expression, then perform a binary operation between a variable and that
+expression, and reassign the result of that binary operation to the variable.
+We have seen this in Python with the \verb!+=! syntax.
+\index{C@\textbf{C}!variables!assignment operators}
+C has very rich support for these \emph{assignment operators}, all of the
+form \verb!variable op= expression!; this is equivalent to \verb!variable = (variable) op (expression)! except that \verb!variable! is only evaluated once.
+The operators \verb!+!, \verb!-!, \verb!*!, \verb!/!, and \verb!%! all have
+assignment operator forms.\footnote{There are other binary operators, associated
+with bit manipulation, which also have assignment operator forms. Since we are
+not covering bit manipulation in this book, they have not been mentioned
+in this section.}
+
+As with assignments, assignment operators have a value (the final value of
+the variable), and can occur in expressions.
+For example
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!while ((n += 5) < LIMIT) ...!\newline
+\normalsize
+\end{adjustwidth}
+
+\subsection{Conditional expressions}
+\index{C@\textbf{C}!conditional expressions}
+C has a ternary operator that is useful in many situations. It has the form:
+\index{C@\textbf{C}!ternary operator}
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!x = expr!\textsubscript{1}\verb! ? expr!\textsubscript{2}\verb! : expr!\textsubscript{3}\verb!;!\newline
+\normalsize
+\end{adjustwidth}
+This is equivalent to
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!if (expr!\textsubscript{1}\verb!) {!\newline
+\verb!    x = expr!\textsubscript{2}\verb!;!\newline
+\verb!else!\newline
+\verb!    x = expr!\textsubscript{3}\verb!;!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+except that it also returns a value which can be exploited in an
+expression, just like assignment and assignment operators.
+You will see examples of its usage later in the book.
+
+\section{Control flow}
+\index{C@\textbf{C}!control flow}
+\subsection{Statements and blocks}
+\index{C@\textbf{C}!statement}
+An expression becomes a \emph{statement} when it is followed by a semicolon.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!x = 0;!\newline
+\verb!i++;!\newline
+\verb!printf(...);!\newline
+\normalsize
+\end{adjustwidth}
+Unlike some other languages, where the semicolon is a statement separator,
+in C the semicolon is a statement terminator.
+\index{C@\textbf{C}!compound statement}
+\index{C@\textbf{C}!block}
+Curly braces (\verb!{}!) are used to group declarations and statements together
+into a \emph{compound statement}, also known as a \emph{block}.
+A block is syntactically equivalent to a single statement.
+
+\subsection{Conditional execution, \texttt{if-else}}
+\index{C@\textbf{C}!control flow!if-else}
+
+As in Python, there are occasions where you will want different bits of code
+to be executed depending upon the state of your program.
+The syntax for \verb!if-else! is
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!if (expression)!\newline
+\verb!    statement!\textsubscript{1}\newline
+\verb!else!\newline
+\verb!    statement!\textsubscript{2}\newline
+\normalsize
+\end{adjustwidth}
+with the \verb!else! part optional.
+\verb!expression! is evaluated; if it is true (i.e., has a non-zero value),
+\verb!statement!\textsubscript{1} is executed; if false,
+\verb!statement!\textsubscript{2} is executed.
+
+Since the \verb!else! part is optional, there is an ambiguity when an \verb!else!
+is omitted from a nested sequence of \verb!if!'s.
+This ambiguity is resolved by associating the \verb!else! with the closest
+previous \verb!else!-less \verb!if!.
+
+In Python, you were also exposed to \verb!elif! to perform multi-way decisions.
+In C, this is done as follows:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!if (expression!\textsubscript{1}\verb!)!\newline
+\verb!    statement!\textsubscript{1}\newline
+\verb!else if (expression!\textsubscript{2}\verb!)!\newline
+\verb!    statement!\textsubscript{2}\newline
+\verb!else if (expression!\textsubscript{3}\verb!)!\newline
+\verb!    statement!\textsubscript{3}\newline
+\verb!. . .!\newline
+\verb!else!\newline
+\verb!    statement!\textsubscript{N}\newline
+\normalsize
+\end{adjustwidth}
+The expressions are evaluated in order; if any expression is true, the
+statement associated with it is executed, and the processing of the entire
+chain is terminated.
+Again, the trailing \verb!else! can be omitted, although this is not a
+particularly good idea; if the preceding expressions capture all of the legal
+situations, then the \verb!else! clause can catch illegal usage of your code.
+
+\subsection{Test at the top - \texttt{while} and \texttt{for}}
+\index{C@\textbf{C}!control flow!while}
+\index{C@\textbf{C}!control flow!for}
+The safest way to loop through code until a terminating conditions is reached
+is to test before entering the loop each time.
+Python enables this through its \verb!while! and \verb!for! statements.
+C provides a \verb!while! statement that is very similar to that in Python; C's
+\verb!for! statement, on the other hand, is much more general than Python's.
+\begin{wrapfigure}{R}{0.25\textwidth}
+\centering
+\includegraphics[scale=0.4]{c/WhileBreakContinue}
+\end{wrapfigure}
+
+The syntax for the \verb!while! statement is as follows:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!while (expression)!\newline
+\verb!    statement!\newline
+\normalsize
+\end{adjustwidth}
+\verb!expression! is evaluated; if it is non-zero, \verb!statement! is executed
+and \verb!expression! is re-evaluated.
+This cycle continues until \verb!expression! is zero, at which point execution
+resumes \emph{after} \verb!statement!.
+C provides a \verb!break! statement that enables an early exit from a \verb!while!
+\index{C@\textbf{C}!control flow!break}
+loop.\footnote{\texttt{break} can also be used to achieve an early exit from
+\texttt{for} and \texttt{switch} statements, as well.}
+The \verb!break! statement in a \verb!while! loop causes execution to resume after
+\verb!statement!.
+C also provides a \verb!continue! statement to cause the next iteration of the
+\index{C@\textbf{C}!control flow!continue}
+\verb!while! loop; in particular, execution will resume at the test of
+\verb!expression!.\footnote{\texttt{continue} can also be used to cause the next
+iteration in a \texttt{for} statement, as well.}
+\begin{wrapfigure}{R}{0.25\textwidth}
+\centering
+\includegraphics[scale=0.4]{c/ForBreakContinue}
+\end{wrapfigure}
+
+The syntax for the \verb!for! statement is as follows:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!for (expr!\textsubscript{1}\verb!; expr!\textsubscript{2}\verb!; expr!\textsubscript{3}\verb!)!\newline
+\verb!    statement!\newline
+\normalsize
+\end{adjustwidth}
+\verb!expr!\textsubscript{1} is known as the initialization field, and
+\verb!expr!\textsubscript{3} is known as the update field.
+
+This is equivalent to:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!expr!\textsubscript{1}\verb!;!\newline
+\verb!while (expr!\textsubscript{2}\verb!) {!\newline
+\verb!    statement!\newline
+\verb!    expr!\textsubscript{3}\verb!;!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+except that the behavior of the \verb!continue! statement differs;
+in a \verb!for! loop, a \verb!continue! causes \verb!expr!\textsubscript{3} to be
+executed immediately, and then the test of \verb!expr!\textsubscript{2}.
+
+While it is possible to put any legal C statements into \verb!expr!\textsubscript{1} and
+\verb!expr!\textsubscript{3}, it is bad style to force unrelated computations
+into these fields in a \verb!for! statement; these are best reserved for
+loop control operations appropriate to the situation.
+
+What happens if you need to perform two or more statements in the initialization
+or update fields of a \verb!for! loop?
+C provides a \emph{comma} operator that enables one to specify multiple
+\index{C@\textbf{C}!control flow!comma operator}
+expressions in a statement; a pair of expressions separated by a comma (\verb!,!) is evaluated left to right, and the type and value of the results are the type
+and value of the rightmost expression.
+
+The comma operator can be used legally anywhere in your program,\footnote{While its use is legal anywhere, such use outside of the initialization and update fields of a \texttt{for} statement should be avoided, as it leads to potentially
+obscure code.} but is most often
+used in the initialization and update fields of a \verb!for! statement, as in
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!for (i=0, j=0; i <= M; i++, j++)!\newline
+\verb!    statement /* that refers to i and j */!\newline
+\normalsize
+\end{adjustwidth}
+
+\subsection{Multi-way decision based upon constants}
+\index{C@\textbf{C}!control flow!switch}
+While being very general, the multi-way decision control described above using
+nested \verb!if-else! statements is not particularly efficient if one
+is attempting to compare the result of an expression against a set of constant
+values and take different actions based upon the result.
+C provides the \verb!switch! statement to enable an efficient mechanism for such
+tests.
+
+The syntax for the \verb!switch! statement is as follows:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!switch (expression) {!\newline
+\verb!    case const-expr!\textsubscript{1}\verb!: statements!\textsubscript{1}\newline
+\verb!    case const-expr!\textsubscript{2}\verb!: statements!\textsubscript{2}\newline
+\verb!    case const-expr!\textsubscript{3}\verb!: statements!\textsubscript{3}\newline
+\verb!    . . .!\newline
+\verb!    case default: statements!\textsubscript{N}\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+
+In the switch statement, the cases simply serve as labels.
+If the \verb!expression! matches one of the constants in a particular label,
+execution starts at the \verb!statements! associated with that \verb!case! label and
+continues \emph{until the end of the \texttt{switch} statement} or until it
+encounters a \verb!break! statement, at which point it will execute the first
+statement after the \verb!switch! statement.
+
+\faWarning~~~Since the default semantics (continue to the end) is almost
+\emph{never} what one wants to happen, it is \emph{critical} that you always
+include a \verb!break! statement at the end of the set of statements associated
+with each \verb!case! label.
+In other words, this is how you should use it!
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!switch (expression) {!\newline
+\verb!    case const-expr!\textsubscript{1}\verb!: statements!\textsubscript{1}\verb!; !\texttt{\textbf{break};}\newline
+\verb!    case const-expr!\textsubscript{2}\verb!: statements!\textsubscript{2}\verb!; !\texttt{\textbf{break};}\newline
+\verb!    case const-expr!\textsubscript{3}\verb!: statements!\textsubscript{3}\verb!; !\texttt{\textbf{break};}\newline
+\verb!    . . .!\newline
+\verb!    case default: statements!\textsubscript{N}\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+
+\subsection{Labels and goto as a last resort}
+\index{C@\textbf{C}!control flow!labels}
+\index{C@\textbf{C}!control flow!goto}
+Most assembly languages, and some earlier ``high-level'' languages, support
+inserting labels in your source code and being able to force execution to
+continue at one of those labels.
+Sound software engineering principles proscribe use of the goto.\footnote{See Edgar Dijkstra, ``Go To Statement Considered Harmful'', Communications of the ACM, Vol. 11, No. 3, pp. 147-148, March 1968.}
+
+Unfortunately, sometimes one needs to abandon processing in some deeply-nested
+control structure.
+The \verb!break! statement enables us to escape from the innermost loop or
+\verb!switch!, but cannot help us if we are several levels deep.
+Thus, labels and goto are most commonly used in such situations, as depicted
+below.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!for (. . .)!\newline
+\verb!    for (. . .) {!\newline
+\verb!        . . .!\newline
+\verb!        if (disaster)!\newline
+\verb!            goto error;!\newline
+\verb!    }!\newline
+\verb!error:   /* code to clean up the mess */!\newline
+\normalsize
+\end{adjustwidth}
+
+A label has the same form as a variable name, and is followed by a colon (\verb!:!).
+A label can be attached to any statement \emph{in the same function} as the \verb!goto! statement.
+The scope of a label is the entire function.
+
+\section{Functions and program structure}
+\index{C@\textbf{C}!functions}
+A C program is composed of functions and global data.
+One of the functions must have the name \verb!main()!, as the runtime will call that function after
+\index{C@\textbf{C}!functions!main()}
+it has initialized the process in which your program will execute.
+
+\subsection{Functions}
+Each function definition has the following form:
+\begin{adjustwidth}{1cm}{}
+\small
+\index{C@\textbf{C}!functions!generic signature}
+\verb!return-type function-name(argument declarations) {!\newline
+\verb!    declarations and statements!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+Various parts of the function declaration may be absent; a minimal function declaration is:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!dummy() {}!\newline
+\normalsize
+\end{adjustwidth}
+This function does nothing and returns nothing.
+When the return type is omitted, it defaults to \verb!int!.
+Code that is dependent upon this default behavior is very dangerous; good software
+engineering practice dictates that one must \emph{always} use
+\index{C@\textbf{C}!functions!prototypes}
+function prototypes to declare the types of the function arguments and its return type, as this
+enables the compiler to make sure that you are using the function correctly.
+
+Communication between functions is via arguments to and return values from a function; functions can
+also communicate through external global data variables.
+\index{C@\textbf{C}!functions!order}
+Functions can occur in any order in the source file, and the source program can be split into
+multiple files.
+A single function must be completely defined in a single source file - i.e., it
+\emph{cannot} be split over two or more files.
+\index{C@\textbf{C}!functions!pre-declaration}
+One can pre-declare function signatures in a source file to guarantee that their use in the source
+file are type-correct; alternatively, the functions can be defined in an order that guarantees that
+a function is defined prior to first use in the source file.
+
+Returning a value from a function to its caller is achieved via the \verb!return! statement:
+\index{C@\textbf{C}!functions!returning function value}
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!return expression;!\newline
+\normalsize
+\end{adjustwidth}
+The calling function is free to ignore the returned value, although this is not good software engineering
+practice. \footnote{If you are explicitly ignoring the return value from a function, you should indicate this by casting (see Section \ref{typeconversions}) the return result to \texttt{(void)}.}
+
+An \verb!expression! is not required after the \verb!return! keyword; in such a situation, no value is
+returned to the caller.
+Control also returns to the caller (with no return value) if execution encounters the closing \verb!}! in
+the function definition.
+
+It is not illegal, but most likely a sign of trouble, if a function returns a value in one place but not
+in another.
+If a function fails to return a value, its ``value'', if checked by the caller, is most definitely
+garbage.
+
+\subsection{An example program}
+Let's construct a program to print each line of standard input that contains a particular ``pattern'' or
+string of characters - a limited version of the Linux \verb!grep! program.
+The main program falls neatly into three pieces:
+\begin{adjustwidth}{1cm}{}
+\small
+\textit{while (there's another line)}\newline
+\verb!    !\textit{if (the line contains the pattern)}\newline
+\verb!        !\textit{print the line}\newline
+\normalsize
+\end{adjustwidth}
+
+The \textit{print the line} is simply a call to \verb!printf()!, defined in \verb!<stdio.h>!.
+\index{C@\textbf{C}!stdio!printf()}
+The \textit{while (there's another line)} is a call to a function \verb!fgets()! defined in \verb!<stdio.h>!.
+\index{C@\textbf{C}!stdio!fgets()}
+Its signature is the following:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!char *fgets(char buf[], int size, FILE *stream);!\newline
+\normalsize
+\end{adjustwidth}
+You pass \verb!fgets()! a character array (\verb!buf[]!), the size of that array (\verb!size!), and
+a stream of characters from an open file (\verb!stream!).
+Each time \verb!fgets()! is called, it copies the next line of input from \verb!stream! into \verb!buf!,
+and places \verb!'\0'! after the line so that \verb!buf! is a legal string in C; if it copied a line
+into \verb!buf!, it returns the address of \verb!buf! as its function value.
+If there are no more lines on \verb!stream! when \verb!fgets()! is called, it returns \verb!NULL! as its
+function value and does nothing to \verb!buf!.
+\verb!fgets()! is similar to the \verb!readline()! function in Python except
+that you have to provide \verb!fgets()! with a buffer into which the next
+line of input is copied.
+
+Thus, our \verb!main()! is starting to look as follows:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#include <stdio.h>!\newline
+\verb!!\newline
+\verb!#define BUFSIZE 1024!\newline
+\verb!!\newline
+\verb!#define UNUSED __attribute__((unused))!\newline
+\verb!!\newline
+\verb!int main(UNUSED int argc, UNUSED char *argv[]) {!\newline
+\verb!    char buf[BUFSIZE];!\newline
+\verb!!\newline
+\verb;    while (fgets(buf, BUFSIZE, stdin) != NULL) {;\newline
+\verb!        !\textit{if (the line contains the pattern)}\newline
+\verb!            printf("%s", buf);!\newline
+\verb!    }!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+In fact, if you simply delete the \textit{if (the line contains the pattern)} from this program,
+you will have a filter that simply copies its standard input to its standard output.
+
+What's the odd definition for \verb!UNUSED!, and why do we use it in the signature for \verb!main()!?
+We previously advised that the warning flags to specify when compiling with \verb!gcc! are \verb!-W -Wall!.
+One of the warnings that will be generated with these flags is if there is a function parameter or an automatic variable that is \emph{not} referenced in the function; in general, such a situation may be a strong indication of a problem in your code.
+\verb!gcc! has provided a set of extensions for specifying attributes in your source code; one of
+those attributes enables you to indicate that a particular parameter or variable is unused \emph{on purpose}.
+If you flag a parameter or variable with this attribute, \verb!gcc! will not issue the corresponding
+warning, since you have proactively indicated that it will not be used.
+In our case, we are not using the command arguments, so flagging \verb!argc! and \verb!argv! as unused is
+appropriate.
+
+So, how do we determine if one string is included in another string?
+We could write a function to do this, and we will show this later.
+But, in the meantime, we should look in \verb!<string.h>! to see if such a function has been
+supplied by the runtime system.
+This can be easily done by asking your search engine to look for ``linux man string''; somewhere in the
+first few results of the search you will see an entry entitled ``string(3) - Linux manual page - man7.org''.
+
+A perusal of that page will yield the signature
+\index{C@\textbf{C}!string functions!strstr}
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!char *strstr(const char *haystack, const char *needle);!\newline
+\normalsize
+\end{adjustwidth}
+seemingly just the function we need.
+Clicking on the link for \verb!strstr(3)! in the ``SEE ALSO'' section gets us to the man page for
+\verb!strstr()!, which indicates that it returns \verb!NULL! if \verb!needle! is \emph{not} contained in
+\verb!haystack!, and the address of the location in \verb!haystack! where \verb!needle! is first found if
+it is.
+
+Thus, our completed program (named \verb!find.c!) looks as follows:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#include <stdio.h>!\newline
+\verb!#include <string.h>!\newline
+\verb!!\newline
+\verb!#define BUFSIZE 1024!\newline
+\verb!!\newline
+\verb!#define UNUSED __attribute__((unused))!\newline
+\verb!!\newline
+\verb!int main(UNUSED int argc, UNUSED char *argv[]) {!\newline
+\verb!    char buf[BUFSIZE];!\newline
+\verb!    char pattern[] = "ould";   /* pattern to search for */!\newline
+\verb!!\newline
+\verb^    while (fgets(buf, BUFSIZE, stdin) != NULL) {^\newline
+\verb^        if (strstr(buf, pattern) != NULL)^\newline
+\verb!            printf("%s", buf);!\newline
+\verb!    }!\newline
+\verb!    return 0;!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+
+A program that has a static pattern to search for is not particularly useful, as we would have to
+edit and recompile the program to search for other patterns.
+We will look at how to make the program more dynamic later in the chapter.
+
+\subsection{External variables}
+\index{C@\textbf{C}!variables!external}
+A C program consists of a set of external objects which are either variables or functions.
+External variables are defined outside of any function, and are thus potentially accessible by
+many functions.
+Functions are \emph{always} external since C does not permit functions to be defined inside of other
+functions.
+External variables and functions have the property that all references to them using the same name, even
+from functions compiled separately, are references to the same thing.
+
+The \emph{scope} of a name is the part of the program within which the name can be used.
+For an automatic variable declared at the beginning of a block, the scope is the block in which the
+name is declared.
+The scope of an external variable or a function lasts from the point at which it is declared to the end
+of the file being compiled.
+
+If an external variable is to be referenced before it is defined, or it is defined in a different source
+\index{C@\textbf{C}!variables!external!extern declaration}
+file from the one in which it is being used, then an \verb!extern! declaration is required.
+
+It is important to distinguish between the \emph{declaration} of an external variable and its
+\index{C@\textbf{C}!variables!external!extern definition}
+\emph{definition}.
+A declaration announces the properties of a variable, primarily its type; a definition also causes
+storage to be set aside for the variable.
+
+For example, if the lines
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int sp;!\newline
+\verb!double val[MAXVAL];!\newline
+\normalsize
+\end{adjustwidth}
+appear outside of any function, they define the external variables \verb!sp! and \verb!val!, cause
+storage to be set aside for each of them, and serve as a declaration for the rest of that source file.
+
+On the other hand, the lines
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!extern int sp;!\newline
+\verb!extern double val[];!\newline
+\normalsize
+\end{adjustwidth}
+declare for the rest of the source file that \verb!sp! is an \verb!int! and that \verb!val! is a
+\verb!double! array; they do not create the variables or reserve storage for them.
+
+Only one definition of an external variable is allowed among all of the files that make up a program;
+initialization is restricted to that single definition.
+
+\subsection{Static variables}
+\index{C@\textbf{C}!variables!static}
+\index{C@\textbf{C}!variables!external!static}
+External variables enable two types of access to named storage: 1) by functions within a source file, and
+2) by functions in other source files.
+Often we require external storage so that functions within a file can share, but wish to hide that
+information from functions in other source files.
+The keyword \verb!static!, if prefixed to external variable definitions, achieves this
+level of hiding - i.e., all functions in the source file can access the static variables,
+but they are hidden from functions in other source files.
+
+The following example declarations
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!static int sp;!\newline
+\verb!static double val[MAXVAL];!\newline
+\normalsize
+\end{adjustwidth}
+define the types and cause storage to be created for \verb!sp! and \verb!val!.
+These variables can only be accessed by functions in the source file where these declarations occur.
+
+External static declarations can be used for functions, as well.
+\index{C@\textbf{C}!functions!static}
+If a function is declared \verb!static!, its name is \emph{invisible} outside of the file in which it is declared.
+We will exploit \verb!static! functions in later chapters when defining abstract data type methods.
+
+Finally, \verb!static! can also be applied to variables declared within functions.
+\index{C@\textbf{C}!variables!automatic!static}
+Internal \verb!static! variables are only visible within the function in which they are declared, just
+as automatic variables; unlike automatics, the \verb!static! variables retain their values across calls
+to the defining function. The following example shows a typical use of an internal \verb!static!
+variable:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int someFunction(void) {!\newline
+\verb!    static int initialized = 0;!\newline
+\verb!!\newline
+\verb^    if (! initialized) {^\newline
+\verb!        initialized++;!\newline
+\verb!        /* perform required initialization */!\newline
+\verb!    }!\newline
+\verb!    /* logic of someFunction() */!\newline
+\verb!    return /* appropriate value */!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+
+\subsection{Header files}
+\index{C@\textbf{C}!header files}
+We use header files (ending in \verb!.h!) to specify types, symbolic constants and function prototypes.
+We use source files (ending in \verb!.c!) to define (and initialize) external variables and define
+\index{C@\textbf{C}!source files}
+functions.
+In our pattern matching program, we included \verb!<stdio.h>!, which defined the variable \verb!stdin!
+and the functions \verb!fgets()! and \verb!printf()!; we also included \verb!<string.h>!, which defined
+\index{C@\textbf{C}!stdio!printf()}
+\index{C@\textbf{C}!stdio!fgets()}
+the function \verb!strstr()!.
+
+Let's suppose that we wish to replace our call to \verb!strstr()! by our own function, with the signature
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int isSubString(const char *needle, const char *haystack);!\newline
+\normalsize
+\end{adjustwidth}
+where \verb!isSubString()! returns 1(true) if \verb!needle! is contained in \verb!haystack!, and
+0 (false) if not.
+We will create two files: \verb!issubstring.h!, which defines the function signature, and
+\verb!issubstring.c!, which implements the function.
+\begin{adjustwidth}{1cm}{}
+\small
+\textbf{issubstring.h}\newline
+\verb!int isSubString(const char *needle, const char *haystack);!\newline
+\verb!!\newline
+\textbf{issubstring.c}\newline
+\verb!#include "issubstring.h"!\newline
+\verb!#include <string.h>!\newline
+\verb!!\newline
+\verb!int isSubString(const char *needle, const char *haystack) {!\newline
+\verb^    return strstr(haystack, needle) != NULL;^\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+Admittedly, \verb!isSubString()! is a very simple function, simply using \verb!strstr()! to do the
+hard work, and returning the correct return type.
+Note that our source file includes the header file using quotes (\verb!""!) around the name instead of
+angle brackets (\verb!<>!) - files included using angle brackets are searched for in standard directories
+in the file system; files included using quotes are first searched for in the current directory,
+then in the standard directories.
+
+You may ask, why include the header file in the source? This guarantees that the file signature
+defined in the header, which will be used by other files, is identical to that defined in the source.
+
+Our main program, \verb!find.c!, must now look as follows:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#include "issubstring.h"!\newline
+\verb!#include <stdio.h>!\newline
+\verb!!\newline
+\verb!#define BUFSIZE 1024!\newline
+\verb!!\newline
+\verb!#define UNUSED __attribute__((unused))!\newline
+\verb!!\newline
+\verb!int main(UNUSED int argc, UNUSED char *argv[]) {!\newline
+\verb!    char buf[BUFSIZE];!\newline
+\verb!    char pattern[] = "ould";   /* pattern to search for */!\newline
+\verb!!\newline
+\verb^    while (fgets(buf, BUFSIZE, stdin) != NULL) {^\newline
+\verb!        if (isSubString(pattern, buf))!\newline
+\verb!            printf("%s", buf);!\newline
+\verb!    }!\newline
+\verb!    return 0;!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+We no longer need to include \verb!<string.h>! here, since this code does not use \verb!strstr()!.
+It does need to include \verb!"issubstring.h"!, since we are now calling that function.
+And, obviously, we replace the call to \verb!strstr()! with a call to \verb!isSubString()!.
+
+All that is left to support ease of building and debugging is to create a Makefile for our
+pattern matching program.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!CFLAGS=-W -Wall!\newline
+\verb!OBJECTS=find.o issubstring.o!\newline
+\verb!!\newline
+\verb!find: $(OBJECTS)!\newline
+\verb!        gcc -o find $(OBJECTS)!\newline
+\verb!!\newline
+\verb!find.o: find.c issubstring.h!\newline
+\verb!issubstring.o: issubstring.c issubstring.h!\newline
+\verb!!\newline
+\verb!clean:!\newline
+\verb!        rm -f $(OBJECTS) find!\newline
+\normalsize
+\end{adjustwidth}
+
+You might ask ``Why indicate a dependency for \verb!find.o! upon \verb!issubstring.h! but not for
+\verb!stdio.h!?''.
+The standard include files are very stable, and do not change.
+Our local include files, on the other hand, are likely to change as we debug the program.
+Thus, we want \verb!make! to include our local include files in the dependency graph.
+
+Now, let's eliminate the dependence of \verb!find! on a compiled pattern.
+We want our program to take a single argument, which is the pattern we wish to look for.
+Here is the absolute final version of \verb!find.c!.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#include "issubstring.h"!\newline
+\verb!#include <stdio.h>!\newline
+\verb!!\newline
+\verb!#define BUFSIZE 1024!\newline
+\verb!!\newline
+\verb!int main(int argc, char *argv[]) {!\newline
+\verb!    char buf[BUFSIZE];!\newline
+\verb!    char *pattern;   /* pattern to search for, taken from argv[1] */!\newline
+\verb!!\newline
+\verb^    if (argc != 2) {^\newline
+\verb!        printf("usage: %s pattern\n", argv[0]);!\newline
+\verb!        return 1;!\newline
+\verb!    }!\newline
+\verb!    pattern = argv[1];!\newline
+\verb^    while (fgets(buf, BUFSIZE, stdin) != NULL) {^\newline
+\verb!        if (isSubString(pattern, buf))!\newline
+\verb!            printf("%s", buf);!\newline
+\verb!    }!\newline
+\verb!    return 0;!\newline!
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+Note that we removed the \verb!#define! of \verb!UNUSED!, as well as application of that attribute to
+\verb!argc! and \verb!argv!, since we \emph{are} using the argument parameters.
+We first check that the user has provided a pattern argument by comparing \verb!argc! with the value
+\verb!2! - remember that \verb!argv[0]! is the command name specified in the \verb!bash! command line,
+and \verb!argv[1]! is the first real argument to the program.
+If the user has either not specified the pattern, or provided too many arguments, we
+remind the user of the correct command line and return a non-zero value, indicating an error.
+Otherwise, we use the pattern in argv[1].
+
+\subsection{Block structure}
+While functions \emph{cannot} be defined inside of other functions,
+variables can be defined in a block-structured fashion within a function.
+Declarations of variables, including initializations, can follow the left brace (\verb!{!) that introduces
+any compound statement, not just the one that begins a function.
+Variables declared in this way hide any identically named variables in outer blocks, and remain in
+existence until the matching right brace (\verb!}!).
+
+Good software engineering practice recommends that you avoid variable names that conceal names in
+an outer scope, as the potential for confusion and error is too great.
+Consider the following example - what number will be printed out?
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#include <stdio.h>!\newline
+\verb!!\newline
+\verb!int number = 42;!\newline
+\verb!!\newline
+\verb!int main(int argc, char *argv[]) {!\newline
+\verb!    int number = 10;!\newline
+\verb!    int i, j;!\newline
+\verb!!\newline
+\verb!    i = 5;!\newline
+\verb!    j = 23; {!\newline
+\verb!        int number;!\newline
+\verb!!\newline
+\verb!        for (number = i; number < j; number++)!\newline
+\verb!            ;!\newline
+\verb!    }!\newline
+\verb!    printf("%d\n", number);!\newline
+\verb!    return 0;!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+
+\subsection{Initialization}
+In the absence of explicit initialization, external and static variables are guaranteed to be initialized
+\index{C@\textbf{C}!variables!initialization}
+to zero.
+Automatic variables have undefined initial value - i.e., in the absence of explicit initialization, they
+should be assumed to contain garbage.
+Scalar variables can be initialized when they are defined by following the name with \verb!=! and an
+expression.
+For external and static variables, the initializer \emph{must} be a constant expression; the
+initialization is done once, before the program begins execution.
+For automatic variables, the initializer is not restricted to being a constant - it may be any expression
+involving previously defined values, even function calls; the explicit initialization of
+automatic variables is performed each time the function or block is
+entered.
+
+An array may be initialized by following its declaration with a list of initializers enclosed in braces
+and separated by commas, as in
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int days[] = { 31,28,31,30,31,30,31,31,30,31,30,31 };!\newline
+\normalsize
+\end{adjustwidth}
+If the size of the array is omitted, as in this example, the compiler computes the length of the
+array from the number of initializers.
+If the size of array is specified, and there are fewer initializers than its declared size, the
+missing elements will be zero for external, static, and automatic variables.
+If there are more initializers than elements in the array, a compiler error is generated.
+
+C does not maintain the length of an array at runtime, unlike Python.
+When using an initialization as for \verb!days[]! above, your code may need to know the number of
+elements that the compiler actually created.
+There are two common ways to do this:
+\begin{itemize}[noitemsep]
+\item you can append a value to the list of initializers that is obviously different from the others
+(e.g., a \verb!-1! in \verb!days[]!), such that at runtime you can count the number of items in the array
+until hitting the terminating value; such a value is called a \emph{sentinel}; or
+\item a more C-savvy way to do this is to use the \verb!sizeof! compile-time operator to define a
+\index{C@\textbf{C}!sizeof compile-time operator}
+constant that is the length of the array; \verb!sizeof(type-name)! is replaced at compile time with
+the number of bytes that an instance of \verb!type-name! will occupy in memory; \verb!sizeof variable-name! is replaced at compile time with the number of bytes that the variable will occupy in memory;
+the following code shows how to exploit this to yield a defined constant that is the size of \verb!days[]!:
+
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int days[] = { 31,28,31,30,31,30,31,31,30,31,30,31 };!\newline
+\verb!#define DAYS_LENGTH (sizeof days / sizeof(int))!\newline
+\normalsize
+\end{adjustwidth}
+Your code may refer to \verb!DAYS_LENGTH! whenever it needs to limit its accesses to the legal index values.
+\end{itemize}
+
+\subsection{The C preprocessor}
+Every C compiler consists of multiple passes.
+\index{C@\textbf{C}!preprocessor}
+The preprocessor is the first pass of the compiler;
+during this pass, the preprocessor replaces commands that it understands with other text,
+obtained from other files or from symbolic constants.
+The commands that are understood are: \verb!#include!, \verb!#define!, \verb!#if!, and \verb!#ifdef!.
+
+\subsubsection{File inclusion}
+\index{C@\textbf{C}!preprocessor!\#include}
+We have already encountered this earlier.
+Any source line of the form
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#include "filename"!\newline
+\verb!#include <filename>!\newline
+\normalsize
+\end{adjustwidth}
+is \emph{replaced} by the contents of \verb!filename!.
+
+If \verb!filename! is delimited by quotes, the file is first search for in the directory where the
+source file is found.
+If it is not found there, or if \verb!filename! is delimited by angle brackets, known directories
+are searched for \verb!filename!.
+An included file may itself contain \verb!#include! lines.
+
+File inclusion has very different semantics from \verb!import! statements in Python.
+Python \verb!import! explicitly brings in names from the referenced modules.
+File inclusion simply replaces each \verb!#include! statement with the contents of that file.
+
+There are often several \verb!#include! lines at the beginning of a source file.
+These include common \verb!#define! statements and extern declarations, or
+access to function prototype declarations, such as \verb!<stdio.h>!.
+\verb!#include! is the preferred way to tie the declarations together for a large program.
+Note that when an included file is changed, all files that depend upon the included file must
+be recompiled.
+
+\subsubsection{Macro substitution}
+\index{C@\textbf{C}!preprocessor!\#define}
+A macro definition has the form
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#define name replacement-text!\newline
+\normalsize
+\end{adjustwidth}
+Subsequent occurrences of \verb!name! in the source file will be replaced by \verb!replacement-text!.
+\verb!name! has the same form as a C variable name, while \verb!replacement-text! is arbitrary.
+Normally, \verb!replacement-text! is the rest of the macro definition line;
+a long definition may be continued onto several lines by placing a \verb!\! at the end of each line
+to be continued.
+The scope of \verb!name! is from the point of definition to the end of the source file being compiled.
+
+A macro definition may use previous definitions.
+Substitutions do \emph{not} take place within quoted strings - i.e., if \verb!YES! is a defined macro
+name, there would be no substitution in \verb!printf("YES")! or \verb!YESMAN!.
+
+A name may be defined with absolutely any replacement text; for example, the following is legal and
+often used:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#define forever for(;;)  /* infinite loop */!\newline
+\normalsize
+\end{adjustwidth}
+
+Macros can be defined with arguments, as in
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#define max(A,B) (((A) > (B)) ? (A) : (B))!\newline
+\normalsize
+\end{adjustwidth}
+When invoked in your code, although it looks like a function call, \verb!max()! expands into
+in-line code.
+Each occurrence of a formal parameter to the macro is replaced by the corresponding actual argument.
+Therefore,
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!x = max(p+q, r+s);!\newline
+\newline
+becomes\newline
+\newline
+\verb!x = (((p+q) > (r+s)) ? (p+q) : (r+s));!\newline
+\normalsize
+\end{adjustwidth}
+
+If an expression causes side effects (e.g., \verb!n++!), macros can give the wrong results; for example,
+\verb!x = max(i++, j++);! will yield the wrong results, as the larger of \verb!i! or \verb!j! will be
+incremented twice.
+
+As you may have noticed in our \verb!max()! example, you must also be extremely generous with parentheses
+to make sure that the appropriate order of evaluation is preserved.
+For example, if we define
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#define square(x) x * x!\newline
+\newline
+what happens if we invoke\newline
+\newline
+\verb!square(z+1)!\newline
+\normalsize
+\end{adjustwidth}
+\begin{exercise}
+\small
+~\newline
+Fix the definition of \verb!square()! in order to obtain the correct results.
+\newline$\Box$
+\normalsize
+\end{exercise}
+
+\subsubsection{Conditional evaluation}
+There are a number of statements that are used to control preprocessing,
+\index{C@\textbf{C}!preprocessor!\#if}
+thus providing a way to include code selectively, depending upon the value
+of conditions evaluated during compilation.
+\verb!#if! evaluates a constant integer expression; the expression may \emph{not}
+include \verb!sizeof! or casts.
+\index{C@\textbf{C}!preprocessor!\#endif}
+\index{C@\textbf{C}!preprocessor!\#elif}
+\index{C@\textbf{C}!preprocessor!\#else}
+If the expression is non-zero, subsequent lines until an \verb!#endif! or \verb!#elif! or \verb!#else!
+are processed; if the expression is zero:
+\begin{itemize}[noitemsep]
+\item if an \verb!#elif expr1! is found, then \verb!expr1! is evaluated; if non-zero, subsequent lines
+until an \verb!#endif/#elif/#else! are processed; if zero, repeat this step;
+\item if an \verb!#else! is found, then subsequent lines until an \verb!#endif! are processed.
+\end{itemize}
+The expression \verb!defined(name)! is \verb!1/0! if \verb!name! is defined/not.
+\index{C@\textbf{C}!preprocessor!defined()}
+
+If the contents of a header file are included more than once while compiling a source file, it can
+\index{C@\textbf{C}!header files!multiple inclusion}
+lead to all kinds of difficulties.
+To make sure that the contents of a header file (e.g., \verb!hdr.h!) are included only once, \verb!hdr.h!
+surrounds the actual contents with a conditional like this:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb^#if !defined(_HDR_H_)^\newline
+\verb!#define _HDR_H_!\newline
+\newline
+\verb!/* actual contents of hdr.h go here */!\newline
+\newline
+\verb!#endif /* _HDR_H_ */!\newline
+\normalsize
+\end{adjustwidth}
+This allows header files to include all other header files upon which it depends without having
+to worry about multiple inclusions of some common header files.
+All of the standard header files (e.g., \verb!<stdio.h>!) do this; you should do this with your header
+files, as well.
+
+There is nothing special about using \verb!_HDR_H_! as the defined symbol to indicate that the
+file has been included; you just need to pick a name that will not collide with other defined constants.
+Leading and trailing underscores, replacing the \verb!.! by an underscore, and converting all letters to
+upper case is a common approach used by C and C++ programmers.
+
+The \verb!#elif! construct is to enable a switch-like choice of lines to process, as in
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#if SYSTEM == OSX!\newline
+\verb!    #define HDR "osx.h"!\newline
+\verb!#elif SYSTEM == LINUX!\newline
+\verb!    #define HDR "linux.h"!\newline
+\verb!#elif SYSTEM == WINDOWS!\newline
+\verb!    #define HDR "windows.h"!\newline
+\verb!#else!\newline
+\verb!    #define HDR "default.h"!\newline
+\verb!#endif /* SYSTEM */!\newline
+\verb!#include HDR!\newline
+\normalsize
+\end{adjustwidth}
+
+Finally, \verb!#ifdef name! is a synonym for \verb!#if defined(name)!, and
+\index{C@\textbf{C}!preprocessor!\#ifdef}
+\index{C@\textbf{C}!preprocessor!\#ifndef}
+\verb!#ifndef name! is a synonym for \verb^#if !defined(name)^.
+
+\section{Pointers and arrays}
+\index{C@\textbf{C}!data types!pointers}
+Up to this point, it is not clear why C would be preferred over any other language.
+The set of basic data types is sparse, and arrays are the only structured built-in type.
+What's so special about C?
+
+C supports a pointer data type; a pointer is a data variable that contains the address of
+(i.e., \textit{points to}) another variable.
+Pointers to data are integrally related to arrays.
+Additionally, C supports pointers to functions, a feature that we will exploit when we introduce
+abstract data types.
+
+\subsection{Pointers to data}
+\begingroup
+\setlength{\intextsep}{0pt}
+\setlength{\columnsep}{15pt}
+\begin{wrapfigure}{R}{0.25\textwidth}
+\centering
+\includegraphics[scale=0.5]{c/PointerGraph}
+\end{wrapfigure}
+A typical computer has an array of consecutively
+numbered (or addressed) memory cells that can be
+manipulated individually or in contiguous groups;
+in the figure to the right, we are assuming
+\verb!N! cells, numbered \verb!0 .. N-1!.
+
+Now suppose that we have a \verb!char! variable named \verb!c!, and that it is assigned to address
+\verb!7!.\footnote{The linker decides where to place variables when linking the program together.}
+Furthermore, we have a pointer to a character, \verb!p!, that is assigned to address \verb!N-6!. The figure assumes that a pointer occupies 4 bytes (a 32-bit architecture); if we were on a 64-bit architecture, it would occupy 8 bytes.
+
+We can make \verb!p! point to \verb!c! with a statement of the form \verb!p = &c;!.
+\index{C@\textbf{C}!data types!pointers!assignment}
+The unary operator \verb!&! gives the address of a variable, it is verbalized as ``address of''.
+After executing such a statement, \verb!p! is said to ``point to'' \verb!c!.
+\par
+\endgroup
+\verb!&! can only be applied to variables and array elements; it cannot be applied to expressions or
+constants.
+
+Once one has a pointer, how do you get at the contents of the variable to which it points?
+The unary operator \verb!*! is the indirection or dereferencing operator; when applied to a pointer,
+it accesses the object to which the pointer points.
+In our previous example, \verb!*p! would yield \verb!'a'!, which is the character stored in \verb!c!.
+The following artificial sequence of statements show the use of \verb!&! and \verb!*!.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int x = 1, y = 2, z[10];!\newline
+\verb!int *p, *q;        /* p and q are pointers to an int */!\newline
+\verb!!\newline
+\verb!p = &x;            /* point now points to x */!\newline
+\verb!y = *p;            /* y is now 1 */!\newline
+\verb!*p = 0;            /* x is now 0 */!\newline
+\verb!q = &z[0];         /* q now points to z[0] */!\newline
+\verb!p = q;             /* p now points to z[0] */!\newline
+\normalsize
+\end{adjustwidth}
+Note that the declaration for a pointer to an \verb!int! is \verb!int *p;! - i.e., it indicates that
+\index{C@\textbf{C}!data types!pointers!declaration}
+the expression \verb!*p! can be used anywhere that an \verb!int! is legal; it also indicates that \verb!p!
+must be dereferenced to yield an \verb!int! - i.e., \verb!p! is a pointer to an \verb!int!.
+\index{C@\textbf{C}!data types!pointers!dereference}
+
+Pointers are constrained to point to a particular type of object - in this case, \verb!p! is a pointer
+to an \verb!int!.
+
+\subsection{Call by value and pointers}
+\label{call by value}When you call a C function, the value of the argument is passed to the function.
+The function can not only read the values passed, but can modify them; since they are copies, the caller's
+copies of those values \emph{are not} changed. Thus, given call by value, there is no direct way for a
+function to alter a variable in the calling function.
+
+Suppose we need a function to swap two values as part of an algorithm. A naive approach would be as
+follows:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb;void swap(int x, int y) {   /* Will not work! */;\newline
+\verb!    int temp;!\newline
+\verb!!\newline
+\verb!    temp = x;!\newline
+\verb!    x = y;!\newline
+\verb!    y = temp;!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+If a caller invokes \verb!swap(a, b)!, upon return from \verb!swap()!, \verb!a! and \verb!b! will still
+have the values they had before the call to \verb!swap()!.
+This is because the function is swapping copies of the actual arguments, not the arguments themselves.
+
+What happens if we modify \verb!swap()! as follows?
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!void swap(int *px, int *py) {   /* swap *px and *py */!\newline
+\verb!    int temp;!\newline
+\verb!!\newline
+\verb!    temp = *px;!\newline
+\verb!    *px = *py;!\newline
+\verb!    *py = temp;!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+If a caller now invokes \verb!swap(&a, &b)!, upon return the values in \verb!a! and \verb!b! will truly
+be swapped.
+
+You saw similar situations in Python when you passed mutable data structures (like lists or dictionaries),
+since a called function could return a value for the function, modify a mutable data structure, or
+both.
+By passing pointer parameters to a function, the function can modify the variables to which the pointers point,
+\index{C@\textbf{C}!functions!modifying caller's variables}
+as well as return a function value.
+
+\subsection{Pointers and arrays}
+Pointers and arrays are strongly related in C, in that any operation that can be achieved by
+array subscripting can also be done with pointers.
+\index{C@\textbf{C}!data types!pointers!array equivalence}
+
+Consider the following declaration:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int a[10];!\newline
+\normalsize
+\end{adjustwidth}
+This defines an integer array named \verb!a! of size \verb!10! - i.e., a block of \verb!10! consecutive
+\verb!int! objects in memory named \verb!a[0]!, \verb!a[1]!, ..., \verb!a[9]!.
+\verb!a[i]! refers to the \verb!i!\textsuperscript{th} element of the array.
+
+Now assume that \verb!pa! is a pointer to an integer, declared as
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int *pa;!\newline
+\normalsize
+\end{adjustwidth}
+The assignment \verb!pa = &a[0];! causes \verb!pa! to point to element zero of \verb!a! - i.e., \verb!pa!
+contains the address of \verb!a[0]!.
+If \verb!x! is an integer, the assignment \verb!x = *pa;! copies the contents of \verb!a[0]! into
+\verb!x!.
+\emph{By definition}, \verb!pa + 1! points to the next element past \verb!pa!; \verb!pa + i! points
+\verb!i! elements past \verb!pa!; and, \verb!pa - i! points \verb!i! elements before \verb!pa!.
+\begin{center}
+\includegraphics[scale=0.6]{c/PointerArray}
+\end{center}
+
+The preceding statements are true regardless of the type or size of the variables in the array \verb!a!.
+The meaning of ``add 1 to a pointer'', and by extension, all pointer arithmetic, is that \verb!pa + 1!
+\index{C@\textbf{C}!data types!pointers!arithmetic}
+points to the next object of that type beyond \verb!pa!, and that \verb!pa + i! points to the
+\verb!i!\textsuperscript{th} object of that type beyond \verb!pa!.
+
+The value of a variable of type array is the address of the \verb!0!\textsuperscript{th} element of
+the array - i.e., \verb!a == &a[0]!.
+Thus, the following are equivalent:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!pa = &a[0];!\newline
+\verb!pa = a;!\newline
+\normalsize
+\end{adjustwidth}
+
+There are several ramifications of this strong relationship between pointers and arrays:
+\begin{itemize}[noitemsep]
+\item a reference to \verb!a[i]! can be written as \verb!*(a + i)!;
+\item a reference to \verb!&a[i]! is identical to \verb!a + i!;
+\item \verb!pa[i]! is identical to \verb!*(pa + i)!;
+\item since a pointer is a variable, expressions like \verb!pa = a! and \verb!pa++! are legal;
+\item since an array name is not a variable, expressions like \verb!a = pa! and \verb!a++! are \emph{illegal};
+\item when an array name is passed as an argument to a function, what is passed is the address of
+the initial element; within the called function, the argument is a local variable; thus, an array
+name parameter is a pointer;
+\item as formal parameters in a function definition, \verb!s[]! and \verb!*s! are equivalent; thus, if
+an array name has been passed as the actual argument in a call, the function can believe that it has been
+handed either an array or a pointer;
+\item a part of an array can be passed to a function by passing a pointer to the beginning of
+the sub-array - e.g., \verb!f(&a[2])! or \verb!f(a+2)!.
+\end{itemize}
+
+\subsection{Pointer arithmetic}
+If \verb!p! is a pointer to some element of an array, then \verb!p++! increments \verb!p! to point to
+the next element, and \verb!p += i! increments it to point \verb!i! elements beyond the current element.
+
+There is a distinguished pointer value, \verb!NULL!, which means that the pointer does not point at
+anything valid; \verb!NULL! is defined in \verb!<stdio.h>!, \verb!<stdlib.h>! and \verb!<string.h>!.\footnote{It is defined in several places since it is used by functions defined in each of these include files.}
+
+Pointer values can be compared using \verb!==!, \verb^!=^, \verb!>!, \verb!>=!, \verb!<!, and \verb!<=!.
+
+Adding or subtracting an integer from a pointer causes the behavior defined previously.
+Subtracting two pointers is also valid; if \verb!p! and \verb!q! point to elements of the same array,
+and if \verb!p < q!, then \verb!q - p + 1! is the number of elements from \verb!p! to \verb!q!, inclusive.
+
+Thus, valid pointer arithmetic operations are:
+\begin{itemize}[noitemsep]
+\item assignment of pointers of the same type;
+\item adding or subtracting a pointer and an integer;
+\item subtracting or comparing two pointers to members of the same array;
+\item assigning or comparing to \verb!NULL!.
+\end{itemize}
+
+The following operations on pointers are \emph{invalid}:
+\begin{itemize}[noitemsep]
+\item add, multiply, or divide two pointers;
+\item add a float or double to a pointer;
+\item assign a pointer of one type to a pointer of another type.\footnote{It is possible to use an explicit cast to assign pointers of different types. This will be discussed in the following section.}
+\end{itemize}
+
+\subsection{\texttt{void *} pointers and heap memory}
+\subsubsection{\texttt{void *} pointers}
+\index{C@\textbf{C}!data types!pointers!void *}
+As we shall see later in this chapter, pointers to structures act somewhat like object
+references in object-oriented languages.
+Nearly all object-oriented languages, Python included, have a base class \verb!Object! from which all
+other classes inherit.
+C provides a generic pointer, \verb!void *!; any pointer can be cast to \verb!void *! and back again
+without loss of information.
+\verb!void *! is used to construct modules that provide generic capabilities at runtime; we will be
+using these in our abstract data types.
+
+One important aspect of \verb!void *! pointers is that you \emph{cannot} dereference them; attempts to do so
+will generate a compiler or a runtime error.
+
+The most common initial exposure to \verb!void *! pointers is through the dynamic memory allocation
+routines defined in \verb!<stdlib.h>!.
+
+\subsubsection{Heap memory}
+\index{C@\textbf{C}!heap memory}
+Many of the data structures used to solve problems grow dynamically - i.e., one cannot know when the
+program starts how much memory a particular data structure will occupy.
+Languages like C (and Python) provide \emph{heap memory} that can be allocated as a data structure
+needs to grow.
+In Python, every time you invoke a constructor (e.g., \verb!list()!, \verb!dict()!, \verb!set()!, or
+the constructor for any class), memory is allocated from the heap.
+Python keeps track of the references to heap-allocated memory; when there are no more references to
+a chunk of heap-allocated memory, it can be returned to the heap.
+This is known as \emph{garbage collection}.
+
+C provides a set of routines for allocating and freeing heap memory
+(in \verb!<stdlib.h>!), but does not track references
+to heap-allocated memory, so does not provide garbage collection.
+Thus, your program must \emph{itself} keep track of references to heap blocks, and free blocks when
+there are no more references.
+Failure to do so causes \emph{memory leaks} in your program, which must be
+assiduously avoided.
+We will discuss the \verb!valgrind! program later in this chapter which helps you find memory leaks.
+
+The function prototypes for the routines in \verb!<stdlib.h>! are as follows:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!/*!\newline
+\verb! * malloc: return a pointer to space for an object of size `size' bytes, or!\newline
+\verb! *         NULL if the request cannot be satisfied. The space is uninitialized.!\newline
+\verb! */!\newline
+\verb!void *malloc(size_t size);!\newline
+\verb!!\newline
+\verb!/*!\newline
+\verb! * free: deallocates space pointed to by `ptr'; it does nothing if `ptr' is  NULL.!\newline
+\verb! *       `ptr' must be a pointer to space previously allocated by malloc(), calloc()!\newline
+\verb! *       or realloc().!\newline
+\verb! */!\newline
+\verb!void free(void *ptr);!\newline
+\verb!!\newline
+\verb!/*!\newline
+\verb! * calloc: returns a pointer to space for an array of `nmemb' elements, each!\newline
+\verb! *         of size `size' bytes, or NULL if the request cannot be satisfied.!\newline
+\verb! *         The space is initialized to zero bytes.!\newline
+\verb! */!\newline
+\verb!void *calloc(size_t nmemb, size_t size);!\newline
+\verb!!\newline
+\verb!/*!\newline
+\verb! * realloc: adjusts the size of the memory block pointed to by `ptr' to `size' bytes,!\newline
+\verb! *          returning a pointer to the resized block; the contents will be unchanged!\newline
+\verb! *          in the range from the start of the region up to the minimum of the old and!\newline
+\verb! *          new sizes; if the new size is larger, the added memory will not be!\newline
+\verb! *          initialized; if a new block had to be allocated, a free(ptr) was done!\newline
+\verb! */!\newline
+\verb!void *realloc(void *ptr, size_t size);!\newline
+\normalsize
+\end{adjustwidth}
+These prototypes use a type \verb!size_t!, which is also defined in \verb!<stdlib.h>!.
+Think of it as an integer.
+
+How do you know the number of bytes that you need to ask for?
+\index{C@\textbf{C}!sizeof compile-time operator}
+We discussed \verb!sizeof! earlier, as this compile-time expression is replaced by the number of
+bytes needed for an instance of a type or for a particular variable.
+When you invoke \verb!malloc()! to allocate some heap memory, a pointer to the first byte in the block
+is returned to you as a \verb!void *!.
+Let's look at an example.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#include <stdlib.h>!\newline
+\verb!#include <stdio.h>!\newline
+\verb!!\newline
+\verb!int *p;!\newline
+\verb!!\newline
+\verb!p = (int *)malloc(sizeof(int));!\newline
+\verb^if (p != NULL) {^\newline
+\verb!    *p = 42;!\newline
+\verb!    /* other uses of the allocated memory */!\newline
+\verb!    free(p);    /* deallocate the memory when done */!\newline
+\verb!} else {!\newline
+\verb!    fprintf(stderr, "Error allocating memory for integer\n");!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+What does this code do?
+We include \verb!<stdlib.h>! so that we can call \verb!malloc()! and refer to \verb!NULL!; we
+also include \verb!<stdio.h>! so that we can call \verb!fprintf()!.
+\index{C@\textbf{C}!stdio!fprintf()}
+We declare a pointer of the appropriate type.
+We then call \verb!malloc()!, using \verb!sizeof()! to specify the number of bytes needed for
+an integer.
+We use the cast \verb!(int *)! to explicitly convert from a \verb!void *! pointer (returned by
+\verb!malloc()!) to an \verb!int *!.
+We check to see if the \verb!malloc()! was successful; if so, we use the allocated memory, then return it to
+the heap;
+if not, we print an error message.\footnote{One does not usually use the heap to allocate temporary basic or structured data types; for example, for temporary use of an \texttt{int} in your function, you just declare it as an automatic; the compiler allocates storage for it on the stack, and when your function returns, that storage is popped off the stack. We use the heap to allocate data items that must survive a return from the function in which they are allocated, usually arrays and structures.}
+ 
+There are two important aspects to this example:
+\begin{itemize}[noitemsep]
+\item you should \emph{always} check the return result from \verb!malloc()! (or \verb!calloc()! or
+\verb!realloc()!); if the allocation failed, and your code attempts to dereference a \verb!NULL!,
+your program will abort with a \emph{segmentation violation}; if the returned value is \verb!NULL!,
+your program needs to take appropriate action;
+\item the line
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int *p = (int *)malloc(sizeof(int));!\newline
+\normalsize
+\end{adjustwidth}
+is an integer-specific version of a standard pattern that you will see in code that uses \verb!malloc()!;
+for any given type \verb!type!, the allocation of an instance of that type will look as follows:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!type *p = (type *)malloc(sizeof(type));!\newline
+\normalsize
+\end{adjustwidth}
+- i.e., \verb!sizeof(type)! is the argument to \verb!malloc()!, the \verb!void *! return from
+\verb!malloc()! is cast to \verb!type *!, and the result is assigned to a variable of \verb!type *!.
+\item Note that due to the strong association of pointers and arrays,
+the pattern to use for an array of \verb!type! of size \verb!N! would be
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!type *p = (type *)malloc(N * sizeof(type));!\newline
+\normalsize
+\end{adjustwidth}
+\end{itemize}
+
+\subsubsection{An example program}
+\label{sec:exampleprogram}
+The following program reads up to the first 100 lines from standard input, stores those lines in
+dynamic memory, prints each of the stored lines, and then frees the dynamic memory.
+We use two functions from \verb!<string.h>!: \verb!strlen()!, which counts the number of characters in
+a character array up to, but not including, the \verb!'\0'! that terminates the string, and
+\verb!strcpy()!, which copies the second argument string into the first.
+\index{C@\textbf{C}!string functions!strcpy}
+This example program also uses a number of other aspects of the language that we have discussed so far.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#include <stdio.h>!\newline
+\verb!#include <stdlib.h>!\newline
+\verb!#include <string.h>!\newline
+\verb!!\newline
+\verb!#define NLINES 100!\newline
+\verb!#define MAXLINESIZE 1024!\newline
+\verb!!\newline
+\verb!int main(int argc, char *argv[]) {!\newline
+\verb!    char *lines[NLINES];!\newline
+\verb!    char buf[MAXLINESIZE];!\newline
+\verb!    char *p;!\newline
+\verb!    int i;!\newline
+\verb!    int nl = 0;!\newline
+\verb!!\newline
+\verb^    while (nl < NLINES && fgets(buf, MAXLINESIZE, stdin) != NULL) {^\newline
+\verb!        p = (char *)malloc(strlen(buf) + 1);   /* why the +1? */!\newline
+\verb!        strcpy(p, buf);!\newline
+\verb!        lines[nl++] = p;!\newline
+\verb!    }!\newline
+\verb!    for (i = 0; i < nl; i++)!\newline
+\verb!        printf("%s", lines[i]);!\newline
+\verb!    for (i = 0; i < nl; i++)!\newline
+\verb!        free((void *)lines[i]);!\newline
+\verb!    return 0;!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+Why did we have to specify the size for the heap buffer as \verb!strlen(buf) + 1!?
+The value returned by \verb!strlen()! does not include the \verb!'\0'! that indicates the
+end of string.
+If we are going to make a legal copy of a string, we have to allocate enough bytes to hold all of the
+characters \emph{and} the \verb!'\0'!; thus, we add one to the number of characters.
+Forgetting to account for the terminating 0 byte is an \emph{exceedingly} common error that
+students make.
+In fact, one has to make string copies on the heap so often that \verb!<string.h>! defines a
+function, \verb!char *strdup(char *str);!, that allocates the correct number of bytes on the heap,
+copies \verb!str! into that block, and returns a \verb!char *! pointer to the heap memory.
+You are encouraged to use \verb!strdup()! for this very common operation,
+\index{C@\textbf{C}!string functions!strdup}
+thus avoiding the memory errors caused by forgetting to allocate space
+for the \verb!'\0'!.
+
+\subsection{Character pointers and functions}
+\index{C@\textbf{C}!strings}
+The most common pointers that you will encounter are pointers to characters.
+Strings are arrays of characters, with each character in the string occupying one position in the array;
+one additional position at the end of the string holds the 0-byte, \verb!'\0'!, to terminate the string.
+
+A string literal is written as: \verb!"This is a string"!.
+The literal is stored as an array of characters in \emph{read-only} memory, with the terminating 0-byte.
+When a string literal/constant is specified as an argument to a function, a \verb!char *! pointer to the
+first character in the literal is passed to the function.
+
+Note that C does \emph{not} provide any operators for processing an entire string as a unit!
+Arrays of characters are used, and a library of functions, defined in \verb!<string.h>!, enables
+typical string manipulation.
+
+Consider the following two declarations:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!char amsg[] = "this is a string";!\newline
+\verb!char *pmsg = "this is a string";!\newline
+\normalsize
+\end{adjustwidth}
+\verb!amsg! is an array, just big enough to hold the sequence of characters and the 0-byte; this array
+is placed in read-write memory, and the characters in the array can be changed by subsequent logic.
+\verb!pmsg! is a pointer, and it points to the first character of an array in read-only memory that
+holds the sequence of characters and the 0-byte;
+the characters in the array \emph{cannot} be changed, but subsequent logic can cause \verb!pmsg! to
+point to a different string in memory.
+
+\subsection{Pointer arrays - pointers to pointers}
+\index{C@\textbf{C}!data types!pointers!pointers to}
+Since pointers are variables themselves, they can be stored in arrays just as other data types can.
+In fact, we have seen variables that are arrays of pointers earlier in the chapter: \verb!argv! (the
+argument vector that is passed as the second argument in the call to \verb!main!) and \verb!lines! (the array to hold lines in the example program in section \ref{sec:exampleprogram}).
+
+As you may recall, \verb!argv! was declared as \verb!char *argv[]! - what does this mean?
+It means that \verb!argv[0]! is of type \verb!char *!; thus our previous assertion that \verb!argv! is
+a list/array of strings; since strings are arrays of characters, then each array element is a pointer to
+an array of characters - i.e., points to the first character in the array.
+
+Suppose that you are asked to write a program that acts just like the standard \verb!echo! command.
+Let's give it a try:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#include <stdio.h>    /* so we can access printf() */!\newline
+\verb!!\newline
+\verb!int main(int argc, char *argv[]) {!\newline
+\verb!    int i;!\newline
+\verb!!\newline
+\verb!    for (i = 0; i < argc; i++) {!\newline
+\verb!        printf("%s%s", (i > 0) ? " " : "", argv[i]);!\newline
+\verb!    }!\newline
+\verb!    printf("\n");!\newline
+\verb!    return 0;!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+Let's see if this works.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!$ gcc -W -Wall -o myecho myecho.c!\newline
+\verb!$ echo this is a test!\newline
+\verb!this is a test!\newline
+\verb!$ ./myecho this is a test!\newline
+\verb!./myecho this is a test!\newline
+\normalsize
+\end{adjustwidth}
+
+\begin{wrapfigure}{R}{0.35\textwidth}
+\centering
+\includegraphics[scale=0.3]{c/ArgvPicture}
+\end{wrapfigure}
+Not exactly what we had in mind; it appears that \verb!argv[0]! contains the command that you
+typed to \verb!bash!, and that the standard \verb!echo! command does not print that.
+No big problem, we have to make two simple changes to the code: 1)modify the initialization clause of
+the \verb!for! loop to \verb!i = 1!, and 2) modify \verb!i > 0! in the first \verb!printf()! invocation
+to \verb!i > 1!.
+
+The first \verb!printf()! statement looks a bit weird, since it uses the ternary conditional.
+What exactly is it doing? Let's deconstruct it piece by piece:
+\begin{itemize}[noitemsep]
+\item the format string is \verb!"%s%s"!, which means that two additional arguments to \verb!printf()!
+are expected, both strings;
+\item if this is not the first time through the for loop (\verb!i > 1!), we want to put a single space; if
+not, we do not want to put a leading character; the ternary argument produces \verb!" "! in the former
+case, and \verb!""! in the latter;
+\item the appropriate \verb!argv[]! value, which is a character pointer, is the final argument.
+\end{itemize}
+
+\subsubsection{Initializing arrays of pointers}
+Suppose you wanted to define a list of keywords that your program would understand as user commands.
+For example, you have a simple image display program that supports the commands \verb!up!, \verb!down!,
+\verb!left!, \verb!right!, \verb!zoom in!, and \verb!zoom out!.
+You can declare and initalize an array of pointers to these keywords with the following code:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!char *keywords[] = {!\newline
+\verb!    "up",!\newline
+\verb!    "down",!\newline
+\verb!    "left",!\newline
+\verb!    "right",!\newline
+\verb!    "zoom in",!\newline
+\verb!    "zoom out",!\newline
+\verb!    NULL!\newline
+\verb!};!\newline
+\normalsize
+\end{adjustwidth}
+Note the addition of \verb!NULL! at the end of the array of pointers; we described earlier how one
+can put a \emph{sentinel} value at the end of a compiler-constructed array so you know how big it
+is; \verb!NULL! is an excellent value to use when you have an array of character pointers.
+By the way, \verb!argv[]! actually is terminated by \verb!NULL! in this way.
+
+\subsection{Multi-dimensional arrays}
+\index{C@\textbf{C}!data types!multi-dimensional arrays}
+C provides rectangular multi-dimensional arrays, although in practice they are much less used than arrays
+of pointers.
+A multi-dimensional array is declared as follows:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int matrix[100][50];!\newline
+\normalsize
+\end{adjustwidth}
+This indicates that \verb!matrix! has 100 rows, each with 50 elements. The value in \verb!matrix! at the
+\verb!i!\textsuperscript{th} row and \verb!j!\textsuperscript{th} column is \verb!matrix[i][j]!.
+
+One can initialize a multi-dimensional array. The following code shows how to do so for a small,
+two-dimensional array.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int matrix[2][4] = {!\newline
+\verb!    { 1, 2, 3, 4 },!\newline
+\verb!    { 5, 6, 7, 8 }!\newline
+\verb!};!\newline
+\normalsize
+\end{adjustwidth}
+
+\subsection{Pointers to functions}
+\index{C@\textbf{C}!data types!pointers!to functions}
+A function itself is not a variable in C, but it is possible to define pointers to functions.
+These can be assigned to pointer variables, placed in arrays, passed as arguments to functions, returned
+by functions, etc.
+Let's look at one use of function pointers.
+
+Consider a sort program that sorts strings in files, like the standard \verb!sort! program in Linux.
+Sometimes, we want to sort the strings lexicographically (i.e., as character strings); at other
+times, there may be a number at the beginning of each line, and we would like the lines to be sorted
+numerically according to the leading number.
+As with the standard \verb!sort! program, the user should be able to choose the type of sort by
+specifying a flag argument when invoking the program.
+
+The pseudocode for our \verb!main()! looks something like the following:
+\begin{adjustwidth}{1cm}{}
+\small
+\textit{process command arguments}\newline
+\textit{read all lines of input}\newline
+\textit{sort them}\newline
+\textit{print them in order}\newline
+\normalsize
+\end{adjustwidth}
+
+Assuming that there is a \verb!sort()! function that performs the \textit{sort them} part of the
+pseudocode, we need to have some way to inform that function how we want the strings to be compared.
+If the function prototype for \verb!sort()! has the following form, we can achieve this flexible
+form of sorting.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!void sort(char *lines[], int left, int right, int (*comp)(char *l1, char *l2))!\newline
+\normalsize
+\end{adjustwidth}
+What does this prototype tell us?
+\begin{itemize}[noitemsep]
+\item \verb!sort()! sorts the array of pointers to strings, \verb!lines[]!;
+\item it actually sorts a slice of the array, specified by \verb!left! and \verb!right!; and
+\item whenever \verb!sort()! needs to compare two entries in \verb!lines[]!, it will invoke the
+function pointed to by \verb!comp!; this function takes two \verb!char *! arguments, and the return
+value from the function will be a value \verb!< 0! if \verb!l1 < l2!, the value \verb!0! if \verb!l1 == l2!, or a value \verb!> 0!
+if \verb!l1 > l2!.
+The function \verb!strcmp()! in \verb!<string.h>! is exactly such a function, and compares the
+strings lexicographically.
+\end{itemize}
+
+Suppose we have read \verb!n! lines of text, such that \verb!lines[0] .. lines[n-1]! have valid
+pointers.
+If we wanted to do a lexicographical sort, \verb!main()! would invoke \verb!sort()! as:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#include <string.h>!\newline
+\verb!!\newline
+\verb!sort(lines, 0, n-1, strcmp);!\newline
+\normalsize
+\end{adjustwidth}
+
+Now suppose that we want to do a numeric sort.
+To do so, we will have to define a numeric compare function that matches the prototype for
+the function pointer argument in \verb!sort()!.
+The following will do the trick.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#include <stdlib.h>!\newline
+\verb!!\newline
+\verb!int numcmp(char *l1, char *l2) {!\newline
+\verb!    int i1 = atoi(l1);!\newline
+\verb!    int i2 = atoi(l2);!\newline
+\verb!    return i1 - i2;!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+and \verb!main()! would invoke \verb!sort()! as
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!sort(lines, 0, n-1, numcmp);!\newline
+\normalsize
+\end{adjustwidth}
+
+\subsubsection{Care when defining function pointers}
+Due to the precedence of C's operators, you have to be careful when defining function pointers.
+For example, consider the following function prototype:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int *f(void *arg);!\newline
+\normalsize
+\end{adjustwidth}
+this defines a function named \verb!f! that returns a pointer to an integer, while
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int (*pf)(void *arg);!\newline
+\normalsize
+\end{adjustwidth}
+defines \verb!pf! as a pointer to a function returning an integer.
+
+In general, when defining a function pointer, you should always surround the name of the pointer
+(\verb!*name!) by parentheses to avoid such mistakes.
+We will use function pointers when constructing abstract data types in C, so we will have plenty of
+practice.
+
+\section{Structures}
+\index{C@\textbf{C}!structured data types!structs}
+A \emph{structure} is a collection of one or more variables, possibly of different types, grouped
+together under a single name for convenient handling.
+A structure declaration looks as follows:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!struct [tag] {!\newline
+\verb!    declarations!\newline
+\verb!};!\newline
+\normalsize
+\end{adjustwidth}
+The keyword \verb!struct! introduces a structure declaration, which is a list of variable declarations
+enclosed in curly braces; the \verb!tag! is an optional name that can be used to refer to this
+structure type in the future.
+The variables named in the declarations within the braces are called \emph{members}.
+
+A \verb!struct! declaration defines a type; it is equivalent to a Python class definition for which
+there are no member functions.
+The right brace that terminates the list of members may be followed by a list of variable names, as in
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!struct { . . . } x, y, z;!\newline
+\normalsize
+\end{adjustwidth}
+A \verb!struct! declaration that is \emph{not} followed by a list of variables reserves no storage;
+it merely describes a template or the shape of a structure.
+In such a case, a \verb!tag! must be specified in order to define instances of the structure later.
+
+Suppose that we have defined the following \verb!struct!:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!struct point {!\newline
+\verb!    int x;!\newline
+\verb!    int y;!\newline
+\verb!};!\newline
+\normalsize
+\end{adjustwidth}
+We can declare an instance of a \verb!point! using
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!struct point pt;!\newline
+\normalsize
+\end{adjustwidth}
+We can initialize a structure in its declaration as in
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!struct point maxpt = { 320, 200 };!\newline
+\normalsize
+\end{adjustwidth}
+We can refer to a member of a particular \verb!struct! as \textit{structure-name.member-name}, as in
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!printf("(%d,%d)\n", pt.x, pt.y);!\newline
+\normalsize
+\end{adjustwidth}
+Structures can be nested; for example, if we represent a rectangle as a pair of points denoting
+diagonally opposite corners, we can define
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!struct rect {!\newline
+\verb!    struct point ll;!\newline
+\verb!    struct point ur;!\newline
+\verb!};!\newline
+\normalsize
+\end{adjustwidth}
+If we declare \verb!screen! as
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!struct rect screen;!\newline
+\normalsize
+\end{adjustwidth}
+then \verb!screen.ll.x! refers to the \verb!x! coordinate of the lower left corner (\verb!ll!) of
+\verb!screen!.
+
+\subsection{Legal operations on a structure}
+\begin{itemize}[noitemsep]
+\item Copy it as a unit.
+\item Assign to it as a unit.
+\item Pass it by value as a function argument.
+\item Return it by value as a function return value.
+\item Takes its address using \verb!&!.
+\item Access its members.
+\item A global structure may be initialized using a list of constant member values.
+\item An automatic structure may be initialized using runtime expressions, as with automatic variables.
+\item It may \emph{not} be compared with another structure using \verb!==! or \verb^!=^.
+\end{itemize}
+
+\subsection{Pointers to structures}
+Passing large structures by value can be very inefficient.
+We can declare pointers to structures just as we do for built-in data types, as in
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!struct point *pp;!\newline
+\normalsize
+\end{adjustwidth}
+This indicates that \verb!pp! is a pointer to structures of type \verb!struct point!.
+If \verb!pp! points to a point structure, then \verb!*pp! is the structure itself, and
+\verb!(*pp).x! and \verb!(*pp).y! are the members.
+
+Pointers to structures are so frequently used that an alternative notation is provided to
+access members.
+If \verb!p! is a pointer to a structure, then \verb!p->member-name! is equivalent to
+\verb!(*p).member-name!.
+
+\subsection{Arrays of structures}
+Of course, we can create an array of structures.
+Recall our previous example of an array of keywords.
+Let's modify it slightly and show how it might be used:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!struct key {!\newline
+\verb!    char *word;!\newline
+\verb!    int value;!\newline
+\verb!};!\newline
+\verb!!\newline
+\verb!struct key keywords[] = {!\newline
+\verb!    { "up", 1},!\newline
+\verb!    { "down", 2},!\newline
+\verb!    { "left", 3},!\newline
+\verb!    { "right", 4},!\newline
+\verb!    { "zoom in", 5},!\newline
+\verb!    { "zoom out", 6},!\newline
+\verb!    { NULL, -1}!\newline
+\verb!};!\newline
+\verb!!\newline
+\verb!int mapKeyword(char *word) {!\newline
+\verb!    int i;!\newline
+\verb!!\newline
+\verb^    for (i = 0; keywords[i].word != NULL; i++)^\newline
+\verb!        if (strcmp(word, keywords[i].word) == 0)!\newline
+\verb!            return keywords[i].value;!\newline
+\verb!    return keywords[i].value;!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+The function \verb!mapKeyword()! maps from one of the string commands to an integer value.
+The code that solicited the string command from the user would call this routine, and then
+process the return value in a \verb!switch! statement to perform the requested action.
+
+\subsection{Self-referential structures}
+As we shall see later in the text, many data structures that we use for common algorithms require
+that a structure contain one or more members that can \emph{point at} instances of that structure - e.g.,
+linked lists, binary trees.
+For a singly-linked list of integers, we would define the following structure type for nodes in the list:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!struct node {!\newline
+\verb!    struct node *next;!\newline
+\verb!    int value;!\newline
+\verb!};!\newline
+\normalsize
+\end{adjustwidth}
+In C, as soon as the compiler has seen \verb!struct tag!, any subsequent code can refer to this tag;
+for members of that struct, one can declare pointers to instances of that structure.
+It makes no sense for a structure to contain a member which is an instance of that structure; where
+would the recursion end?
+
+\subsection{Typedefs}
+\index{C@\textbf{C}!data types!typedefs}
+C provides a facility for creating new data type \emph{names}.
+For example,
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!typedef int Length;!\newline
+\normalsize
+\end{adjustwidth}
+makes the name \verb!Length! a synonym for \verb!int!.
+
+The type name \verb!Length! can be used in declarations, casts, etc. in exactly the same way that
+\verb!int! can be used; for example:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!Length len, maxlen;!\newline
+\verb!Length *lengths[25];!\newline
+\normalsize
+\end{adjustwidth}
+
+We can use \verb!typedef! to also define synonyms for pointers.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!typedef char *String;!\newline
+\normalsize
+\end{adjustwidth}
+makes \verb!String! a synonym for \verb!char *!.
+
+The most common use of \verb!typedef! is with respect to structures.
+Let's revisit our point structure and define a new type name for it.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!typedef struct point {!\newline
+\verb!    int x;!\newline
+\verb!    int y;!\newline
+\verb!} Point;!\newline
+\normalsize
+\end{adjustwidth}
+This particular style is extremely common - i.e., the tag for the structure starts with a lower-case
+letter,
+while the synonym starts with an upper-case letter; in this example,
+the tag is \verb!point!, while the synonym for \verb!struct point! is \verb!Point!.
+With the above definition of \verb!Point!, our definition for a rectangle can become
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!typedef struct rectangle {!\newline
+\verb!    Point ll;!\newline
+\verb!    Point ur;!\newline
+\verb!} Rectangle;!\newline
+\normalsize
+\end{adjustwidth}
+and we can declare the variable \verb!screen! as \verb!Rectangle screen;!.
+
+Note that \verb!typedef! does \emph{not} create a new type in any sense; it merely adds a synonym for some
+existing type.
+For example, we can declare variables as \verb!struct point p1;! or as \verb!Point p2;!.
+Both declarations achieve the same goal, of creating a variable that holds a \verb!struct point! - i.e.,
+both \verb!p1! and \verb!p2! have exactly the same properties.
+
+It is also possible to create a synonym for function pointers.
+For example:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!typedef int (*PFI)(char *, char *);!\newline
+\normalsize
+\end{adjustwidth}
+creates the type name \verb!PFI! for ``pointer to function (of two \texttt{char *} arguments) returning
+an \texttt{int}''; it could be used as in the following:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!PFI strcmp, numcmp;!\newline
+\normalsize
+\end{adjustwidth}
+
+\subsection{Structs and the heap}
+The \verb!sizeof! compile time operator works with \verb!struct!'s just like it does for built-in
+types.
+This enables us to create instances of our structures on the heap using \verb!malloc()!.
+
+Consider the following example:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!typedef struct node {!\newline
+\verb!    struct node *next;!\newline
+\verb!    int val;!\newline
+\verb!} Node;!\newline
+\verb!!\newline
+\verb!Node *head = NULL;    /* head of singly-linked list */!\newline
+\verb!Node *tail = NULL;    /* tail of singly-linked list */!\newline
+\verb!!\newline
+\verb!int addNode(int value) { /* add node to tail of list */!\newline
+\verb!    Node *n = (Node *)malloc(sizeof(Node));!\newline
+\verb!!\newline
+\verb^    if (n != NULL) {^\newline
+\verb!        n->val = value;!\newline
+\verb!        n->next = NULL;!\newline
+\verb!        if (head == NULL)!\newline
+\verb!            head = n;!\newline
+\verb!        else!\newline
+\verb!            tail->next = n;!\newline
+\verb!        tail = n;!\newline
+\verb!        return 1;    /* return success indication */!\newline
+\verb!    } else {!\newline
+\verb!        return 0;    /* return failure indication */!\newline
+\verb!    }!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+The call to \verb!malloc()! looks just like those we have seen before.
+Through the cast, we have a pointer to our structure, and can manipulate the members of
+the allocated structure.
+This example is for a singly-linked list, which we will see later in the textbook.
+
+\subsection{Unions}
+\index{C@\textbf{C}!data types!unions}
+A \emph{union} is a variable that may hold (at different times) objects of different types and
+sizes, with the compiler keeping track of size and alignment requirements.
+Unions enable the manipulation of different kinds of data in a single area of storage,
+without embedding any machine-dependent information in your program.
+
+Consider the symbol table for a compiler; the program could have integer, floating point, or character
+string literals; we would like to define a single structure type for a literal in our symbol
+table.
+The value of a particular literal must be stored in a variable of the appropriate type, but it is
+most convenient for table management if the value occupies the same amount of storage and is stored in
+the same place, regardless of its type.
+
+The syntax is similar to that for structures. For this symbol table application:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!union literalValue {!\newline
+\verb!    int ival;!\newline
+\verb!    double dval;!\newline
+\verb!    char *sval;!\newline
+\verb!} u;!\newline
+\normalsize
+\end{adjustwidth}
+defines a variable named \verb!u! which at different times can hold an integer, a double-precision floating point number,
+or a pointer to a character array.
+The tag identifier, in this case \verb!literalValue!, is optional.
+\verb!u! will be large enough to hold the largest of the three types.
+Any one of these types may be assigned to \verb!u! and then used in expressions.
+
+Of course, your program must have some way to keep track of what type of value the \verb!union! currently
+holds.
+One normally creates a structure, called a \emph{discriminated union}, which consists of a member for
+keeping track of the type of value in the \verb!union!, and a member which is the union.
+Given the definition of \verb!literalValue! above,
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!#define INTVALUE 1!\newline
+\verb!#define DOUBLEVALUE 2!\newline
+\verb!#define STRINGVALUE 3!\newline
+\verb!!\newline
+\verb!struct sTableEntry {!\newline
+\verb!    int uType;!\newline
+\verb!    union literalValue u;!\newline
+\verb!} s;!\newline
+\normalsize
+\end{adjustwidth}
+
+Suppose that our program had read the integer constant \verb!42! in its input, and needed to
+place that information in \verb!s! declared above.
+The following two lines would do the trick:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!s.uType = INTVALUE;!\newline
+\verb!s.u.ival = 42;!\newline
+\normalsize
+\end{adjustwidth}
+
+Given the definition of \verb!sTableEntry! above, the following code would display the
+current value in \verb!s! on standard output:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!switch(s.uType) {!\newline
+\verb!    case INTVALUE:    printf("%d\n", s.u.ival); break;!\newline
+\verb!    case DOUBLEVALUE: printf("%f\n", s.u.dval); break;!\newline
+\verb!    case STRINGVALUE: printf("%s\n", s.u.sval); break;!\newline
+\verb!    default:          printf("illegal discriminator value - %d\n", s.uType);!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+
+
+As with structures, pointers to unions can be created/used, and \verb!malloc()! can be used to
+dynamically allocate a union on the heap.
+
+\section{Input and output}
+\index{C@\textbf{C}!stdio}
+Input and output facilities are not part of the C language itself.
+The standard I/O library, defined in \verb!<stdio.h>!, provides the ANSI standard library of I/O functions.
+A program comes to life with standard input (\verb!stdin!), standard output (\verb!stdout!), and
+standard error output (\verb!stderr!) predefined.
+By default, \verb!stdin! is associated with your keyboard, and \verb!stdout! and \verb!stderr! are
+associated with your terminal window.
+If the program was invoked with I/O redirection in the command line, the associated standard streams
+will point to the file or pipe specified.
+\subsection{Single character input and output}
+The simplest input mechanism is to read one character at a time from \verb!stdin!, using \verb!getchar()!:
+\index{C@\textbf{C}!stdio!getchar()}
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int getchar(void);!\newline
+\normalsize
+\end{adjustwidth}
+\verb!getchar()! returns the next input character from \verb!stdin! each time it is called, or \verb!EOF!
+when it encounters the end of file.
+
+The function
+\index{C@\textbf{C}!stdio!putchar()}
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int putchar(int ch);!\newline
+\normalsize
+\end{adjustwidth}
+puts the character \verb!ch! onto \verb!stdout!.
+We have previously seen that \verb!printf()! also prints its output on \verb!stdout!.
+\index{C@\textbf{C}!stdio!printf()}
+Calls to \verb!putchar()! and \verb!printf()! can be interleaved - output appears in the order in which
+the calls were made.
+
+\subsection{Formatted input - \texttt{scanf()}}
+\index{C@\textbf{C}!stdio!scanf()}
+The function \verb!scanf()! is the input analog to \verb!printf()!, providing many of the same
+conversion facilities in the opposite direction:
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int scanf(char *format, ...);!\newline
+\normalsize
+\end{adjustwidth}
+\verb!scanf()! reads characters from standard input, interprets them according to the specification in
+\verb!format!, and stores the results in the remaining arguments.
+Note that all of the arguments into which \verb!scanf()! stores the results \emph{must} be pointers, as
+we discussed in section \ref{call by value}.
+\verb!scanf()! stops when it reaches the end of the format string, or when some input fails to
+match the control specification in the format string.
+\verb!scanf()! returns as its value the number of successfully matched and assigned input items.
+If an end of file is detected while scanning, \verb!EOF! is returned.
+The next call to \verb!scanf()! resumes scanning standard input immediately after the last character
+scanned in the current call.
+
+The \verb!scanf()! format string usually contains conversion specifications, which are used to
+control conversion of input.
+It may contain:
+\begin{itemize}[noitemsep]
+\item blanks or tabs, which are ignored;
+\item ordinary characters (not \verb!%!), which are expected to match the next non-white-space character of the input stream;
+\item conversion specifications, consisting of the character \verb!%!, an optional assignment suppression
+character \verb!*!, an optional number specifying a maximum field width, an optional \verb!h!, \verb!l! or
+\verb!L! indicating the width of the target, and a conversion character.
+\end{itemize}
+The basic \verb!scanf()! conversions are shown in the following table.
+\begin{center}
+\small
+\begin{tabular}{|c|p{4cm}|l|p{6cm}|}
+\hline
+\textbf{character} & \textbf{input data} & \textbf{argument} & \textbf{comment} \\
+ & & \textbf{type} & \\
+\hline
+\texttt{d} & decimal integer & \texttt{int *} & \texttt{ld} -> \texttt{long *}, \texttt{Ld} -> \texttt{long long *}\\
+\hline
+\texttt{i} & integer & \texttt{int *} & the integer may be in octal (leading 0) or hexadecimal (leading 0x or 0X); same \texttt{l} and \texttt{L} modifiers as for decimal integer\\
+\hline
+\texttt{o} & octal integer & \texttt{int *} & with or without leading 0; \texttt{lL} modifiers as for decimal integer\\
+\hline
+\texttt{u} & unsigned decimal integer & \texttt{unsigned *} & \texttt{lu} -> \texttt{unsigned long *}, \texttt{Lu} -> \texttt{unsigned long long *}\\
+\hline
+\texttt{x} & hexadecimal integer & \texttt{int *} & with or without leading 0x/0X; \texttt{lL} modifiers as for decimal integer\\
+\hline
+\texttt{c} & character & \texttt{char *} & the next input character is copied; the normal skip over white space is suppressed\\
+\hline
+\texttt{s} & unquoted character string & \texttt{char *} & address of an array of characters large enough for the string and a terminating \texttt{'\textbackslash{0'}}\\
+\hline
+\texttt{e,f,g} & floating point number & \texttt{float *} &  with optional sign, optional decimal point and optional exponent; \texttt{lf} -> \texttt{double *}, \texttt{Lf} -> \texttt{long double *}\\
+\hline
+\texttt{\%} & literal \% & no assignment & \\
+\hline
+\end{tabular}
+\normalsize
+\end{center}
+
+Here are a couple of examples.
+\begin{itemize}[noitemsep]
+\item Suppose we want to read input lines that contain dates of the form ``dd Month yyyy'':
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int day, year;!\newline
+\verb!char monthname[20];!\newline
+\verb!!\newline
+\verb^if (scanf("%d %s %d", &day, monthname, &year) != 3) {^\newline
+\verb!    printf("input was not in the form dd Month yyyy\n");!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+\item Now suppose that the required format is ``mm/dd/yyyy'':
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int day, month, year;!\newline
+\verb!!\newline
+\verb^if (scanf("%d/%d/%d", &month, &day, &year) != 3) {^\newline
+\verb!    printf("input was not in the form mm/dd/yyyy\n");!\newline
+\verb!}!\newline
+\normalsize
+\end{adjustwidth}
+\end{itemize}
+
+\subsection{File access}
+Given the name of a file as a string, one can open it for reading/writing, read from it or write to it,
+and close it.
+\verb!<stdio.h>! defines a stream type \verb!FILE *!; a successful file open returns one of these
+streams, the I/O routines and the close routine take one of these streams as an argument.
+\verb!<stdio.h>! defines \verb!stdin!, \verb!stdout!, and \verb!stderr! as instances of a \verb!FILE *!.
+The function prototypes are as follow.
+\index{C@\textbf{C}!stdio!fopen()}
+\index{C@\textbf{C}!stdio!getc()}
+\index{C@\textbf{C}!stdio!putc()}
+\index{C@\textbf{C}!stdio!fclose()}
+\index{C@\textbf{C}!stdio!fscanf()}
+\index{C@\textbf{C}!stdio!fprintf()}
+\index{C@\textbf{C}!stdio!fgets()}
+\index{C@\textbf{C}!stdio!fputs()}
+\index{C@\textbf{C}!stdio!scanf()}
+\index{C@\textbf{C}!stdio!sprintf()}
+\begin{center}
+\small
+\begin{tabular}{|l|p{7cm}|}
+\hline
+\textbf{prototype} & \textbf{comment} \\
+\hline
+\texttt{FILE *fopen(char *name, char *mode);} & most common mode values are \texttt{"r"} to open for reading, \texttt{"w"} to open for writing (overwriting any existing contents), and \texttt{"a"} to open for appending\\
+\hline
+\texttt{int getc(FILE *fp);} & return next character from stream, returning \texttt{EOF} if end of file\\
+\hline
+\texttt{int putc(int c, FILE *fp);} & write character to stream\\
+\hline
+\texttt{int fclose(FILE *fp);} & close stream\\
+\hline
+\texttt{int fscanf(FILE *fp, char *format, ...);} & scan stream according to \texttt{format}\\
+\hline
+\texttt{int fprintf(FILE *fp, char *format, ...);} & output values to stream according to \texttt{format}\\
+\hline
+\texttt{char *fgets(char *buf, int size, FILE *fp);} & fetch next line, including \texttt{'\textbackslash{n'}} into buf, returning \texttt{buf} if successful, \texttt{NULL} if end of file\\
+\hline
+\texttt{int fputs(char *buf, FILE *fp);} & output characters in \texttt{buf} to stream\\
+\hline
+\end{tabular}
+\normalsize
+\end{center}
+
+There are also versions of \verb!scanf()! and \verb!printf()! that work with characters buffers instead of
+\verb!FILE *! streams.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!int sscanf(char *buf, char *format, ...);!\newline
+\verb!int sprintf(char *buf, char *format, ...);!\newline
+\normalsize
+\end{adjustwidth}
+
+Finally, while functions in the \verb!scanf()! family return the number of conversions that were
+successfully completed, the functions in the \verb!printf()! family return the number of characters
+written to the stream/buffer; \verb!sprintf()! always writes a terminating 0-byte, but does not include
+it in the returned count.
+Thus, the following pattern is sometimes seen in code that is constructing a complex string in a
+buffer.
+\begin{adjustwidth}{1cm}{}
+\small
+\verb!char *p, buf[4096];!\newline
+\verb!!\newline
+\verb!p = buf;!\newline
+\verb!p += sprintf(p, format1, v1, v2, ..., vn);!\newline
+\verb!p += sprintf(p, format2, w1, w2, ..., wm);!\newline
+\verb!p += sprintf(p, format3, x1, x2, ..., xo);!\newline
+\verb!* * *!\newline
+\verb!/* buf contains the concatenated formatted outputs */!\newline
+\normalsize
+\end{adjustwidth}
+
+\section{Environment variable \& command argument conventions}
+There are a variety of ways for providing information to programs that you
+invoke in \verb!bash!:
+\begin{itemize}[noitemsep]
+\item A program can indicate that it will obtain the value of an
+environment variable if it is defined; for example, \verb!make! will obtain
+the value of an environment variable \verb!CFLAGS! if it is defined in its
+environment, and will use that value unless \verb!CFLAGS! is explicitly defined
+in the makefile. In this latter case, it will use the value defined in the
+makefile.\footnote{You are strongly advised to \emph{NOT} define \texttt{CFLAGS} in the environment, and to \emph{ALWAYS} define \texttt{CFLAGS} at the top of each Makefile. From personal experience, you will forget that you have defined \texttt{CFLAGS} in the environment when you port your code to another system, and spend quite a bit of time figuring out what is wrong.}
+\item A program can indicate that it will change its functionality if particular
+flags are specified in the command line. These flags come in two flavors:
+\begin{itemize}[label=$\star$]
+\item "short" flags - these are of the form 
+\verb!-<character>!, where \verb!<character>! is replaced by a single letter;
+the man page for the program will tell you how the program interprets such
+an argument. By convention, an argument of this form indicates
+to the program that you are selecting a particular way that the program should
+perform its function. For example, \verb!ls! without a flag indicates that
+\verb!ls! should list the names of the files in the current working directory.
+\verb!ls -l!, on the other hand, indicates that \verb!ls! should display a
+\emph{long} listing of each file in the current working directory, one per line.
+
+Most commands permit one to specify several short flag characters in a single
+argument - consider \verb!ls -lrt!. The \verb!-l! flag indicates that one should
+do a long listing, the \verb!-r! flag indicates that it should reverse the order
+of the presentation, and the \verb!-t! flag indicates that the files should be
+ordered by modification time. It is perfectly legal to invoke this as
+\verb!ls -l -r -t!, but users require compounding individual flags so often
+that, by convention, most programs support this approach.
+
+Sometimes an argument of this type requires an additional piece of information;
+For example, \verb!ls -w 50! indicates that \verb!ls! should restrict its output
+to 50 columns on the output. The number of columns \verb!50! must follow the
+\verb!-w! immediately on the command line as a separate argument to the
+command.
+When a short flag requires additional information, it cannot be combined with
+other short flags \emph{unless} it is the last short flag, as in
+\verb!ls -lw 65!.
+\item "long" flags - 
+such flags are introduced
+by two hyphens, as in \verb!--all! or \verb!ls --width=50!.
+In such cases, the flag text (\verb!width!) and its value (\verb!50!) are a
+single string argument as seen by the program.
+\end{itemize} 
+\item All other arguments are usually names of files; occasionally, for example
+for programs like \verb!grep!, the first non-flag argument is considered a
+pattern for which \verb!grep! must search in the files named in subsequent
+arguments.
+\end{itemize}
+
+From this discussion, you should infer that Linux \emph{strongly} discourages
+starting a filename with a hyphen (\verb!'-'!).
+If you do so, you will need to consult online help to rename the file to
+remove the leading hyphen.
+
+If you are writing a program in C to be invoked from \verb!bash!, you will need
+to provide logic in your \verb!main()! to obtain the arguments that were
+specified when your program was invoked.
+For your program to be a good citizen in the Linux environment, you should
+adhere to the following rules:
+\begin{itemize}[noitemsep]
+\item If information (such as \verb!CFLAGS! to \verb!make!) can be provided
+via an environment variable, this information should be obtained before
+processing any command arguments.
+\item While some programs enable one to intersperse flags between filenames,
+it is strongly recommended that you \emph{not} do that. In other words, all
+flags should occur before the first non-flag argument.
+\item If an argument starts with \verb!'-'!, and it is \emph{not} a bare
+\verb!'-'!, it is a flag; if it \emph{is} a bare \verb!'-'!, most programs
+consider this to be shorthand for \verb!standard input!.
+\item For a flag, if the next
+character is another \verb!'-'!, it is a long flag. The processing of a flag
+will depend upon this distinction.
+\begin{itemize}[label=$\star$,noitemsep]
+\item If it is a short flag, your code should process each character that
+appears after the leading hyphen.
+\item If it is a short flag, and the last character that follows the hyphen
+requires additional information, you need to process the next argument for
+that additional information.
+\item If it is a long flag, and the flag requires additional information, it
+will be found in the same argument following the \verb!'='! sign.
+\item If the flag is providing the same information as an environment variable,
+the value provided by the flag \emph{overrides} any value that was obtained
+from an environment variable.
+\end{itemize}
+\end{itemize}
+
+\section{Debugging your programs}
+\index{gdb@\textbf{gdb}}
+\index{commands@\textbf{commands}!gdb}
+The GNU debugger, usually called GDB and named \verb!gdb! as an
+executable file, is the standard debugger for the Linux operating system.
+It can be used to debug programs written in a number of programming
+languages, including C, C++, Objective-C, Fortran, Java, and many others.
+
+GDB was first written by Richard Stallman in 1986 as part of the GNU system.
+It is free software, released under the GNU General Public License,
+and is included in all Linux distributions.
+
+GDB enables you to inspect what a program is doing at certain points of
+execution.
+Errors like \emph{segmentation faults} are often quite easy to find with
+the help of \verb!gdb!.
+
+This section provides a brief introduction into the use of \verb!gdb!.
+Complete documentation for \verb!gdb! may be obtained from
+\url{https://www.gnu.org/software/gdb/documentation/}.
+
+\subsection{Preparing your program for use with \texttt{gdb}}
+Normally, you compile your program as follows:
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!$ gcc [flags] -o <executable file> <source files>!
+\end{adjustwidth}
+\normalsize
+
+As advised in Section \ref{sec:CFLAGS}, \verb![flags]! should be
+replaced by \verb!-W -Wall!.
+In order for the \verb!executable file! to be used with \verb!gdb!, one
+must add an additional flag, \verb!-g!, to the command line, as in
+the following example:
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!$ gcc -W -Wall -g -o prog prog.c!
+\end{adjustwidth}
+\normalsize
+\index{gdb@\textbf{gdb}!-g flag to gcc}
+
+You can now execute \verb!prog! under \verb!gdb!'s control using the
+following command:
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!$ gdb prog!
+\end{adjustwidth}
+\normalsize
+This command simply starts up \verb!gdb!; section \ref{running under gdb}
+describes how to proceed with actually running the program under \verb!gdb!.
+
+\verb!gdb! provides an interactive shell, enabling you to recall history using
+the arrow keys and to auto-complete (most) words using the \verb!TAB! key.
+At any time, you may ask \verb!gdb! for help with a command by typing the
+following to the \verb!gdb! prompt:
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!(gdb) help !\textit{command}
+\end{adjustwidth}
+\normalsize
+
+\subsection{Running the program under \texttt{gdb}}
+\label{running under gdb}
+
+To run your program under \verb!gdb!, you type the following command:
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!(gdb) run [arguments]!
+\end{adjustwidth}
+\normalsize
+\index{gdb@\textbf{gdb}!run command}
+If your program requires arguments, obtained through \verb!argv[]! in
+\verb!main()!, you must specify them after the \verb!run! command.
+You may also specify I/O redirection (\verb!<file! and/or \verb!>file!)
+along with the command arguments.
+
+This runs the program - if there are no serious problems, the program
+should run to successful completion.
+If the program has issues, \verb!gdb! assumes control after the
+program unsuccessfully terminates, and displays some useful information about
+the program, such as the line number where it terminated, parameters to
+the enclosing function, etc.
+
+Consider the following program in a file \verb!test.c!:
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/gdb/testbug.c}
+\end{adjustwidth}
+\normalsize
+
+The following dialog shows execution of this program using \verb!gdb!:
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/gdb/testbug.log}
+\end{adjustwidth}
+\normalsize
+
+As you can see, we encountered a \emph{segmentation fault} in \verb!strlen()!,
+\index{gdb@\textbf{gdb}!segmentation fault}
+which caused the program to terminate.
+You may recall that segmentation faults result from attempting to access
+virtual address \verb!0!.
+Thus, it is likely that the argument to \verb!strlen()! is a NULL pointer.
+Since we define \verb!a! to be \verb!NULL! in \verb!main()!, pass \verb!a! to
+\verb!foo_len()!, which then passes \verb!a! on to \verb!strlen()!, we
+have found the source of our segmentation fault.
+\footnote{Note that if we had simply invoked \texttt{test} in the shell, the
+shell would have yielded the relatively unhelpful message of
+\begin{adjustwidth}{1cm}{}
+\texttt{Segmentation fault (core dumped)}
+\end{adjustwidth}}
+
+If we change the declaration for \verb!a! to the following:
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!const char *a = "This is a test string";!
+\end{adjustwidth}
+\normalsize
+the following dialog results:
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/gdb/test.log}
+\end{adjustwidth}
+\normalsize
+
+To exit from \verb!gdb!, one uses the \verb!quit! command.
+\index{gdb@\textbf{gdb}!quit command}
+If you are attempting to \verb!quit! after a program has terminated
+successfully, \verb!gdb! lets you \verb!quit! directly, as in:
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!(gdb) quit!\newline
+\verb!$!
+\end{adjustwidth}
+\normalsize
+If, on the other hand, the program has terminated unsuccessfully, \verb!gdb!
+requests that you verify your intention to quit, as in:
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!(gdb) quit!\newline
+\verb!A debugging session is active.!\newline
+\verb!!\newline
+\verb!        Inferior 1 [process 26028] will be killed.!\newline
+\verb!!\newline
+\verb!Quit anyway? (y or n) y!\newline
+\verb!$!
+\end{adjustwidth}
+\normalsize
+
+\subsection{Other useful commands}
+If all \verb!gdb! provided was extra information about the source of the
+fault that killed your program, it would not have to be interactive.
+The real power of a debugger is that it lets you stop the execution of
+your program, inspect the contents of memory, and view other aspects of
+your program as it executes.
+
+One useful command to \verb!gdb! is to inspect the sequence
+of calls that resulted in the faulty termination of your program.
+This command is \verb!bt! (for \textit{backtrace} -- \verb!backtrace! is also
+\index{gdb@\textbf{gdb}!backtrace command}
+\index{gdb@\textbf{gdb}!bt command|see {backtrace}}
+a legal command to obtain this functionality).
+Let's ask for the backtrace after our faulty program above exits with a
+segmentation fault:
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!(gdb) bt!\newline
+\verb!#1  0x00007ffff7ab8201 in strlen () from /usr/lib/libc.so.6!\newline
+\verb!#2  0x000000000040055e in foo_len (s=0x0) at test.c:8!\newline
+\verb!#3  0x0000000000400583 in main (argc=1, argv=0x7fffffff3878) at test.c:14!\newline
+\verb!(gdb)!\newline
+\end{adjustwidth}
+\normalsize
+For this simple example, the backtrace corroborates our logic above
+regarding the source of the segmentation fault.
+
+A particularly useful command to \verb!gdb! is to set a \emph{breakpoint} in
+the program; this is done with a command of the form:
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!(gdb) break !\textit{location}
+\end{adjustwidth}
+\normalsize
+\index{gdb@\textbf{gdb}!break command}
+When your program reaches a breakpoint, it will pause and control
+returns to \verb!gdb!. You must set your initial breakpoint[s] before you
+\verb!run! the program; you may introduce additional breakpoints whenever
+your program has paused and \verb!gdb! has regained control.
+
+Let's set a breakpoint in our faulty program before we execute it
+\footnote{The boilerplate text from \texttt{gdb} will no longer be shown in
+dialogs.}:
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/gdb/breakpoint.log}
+\end{adjustwidth}
+\normalsize
+We specified that a breakpoint should be set at the start of \verb!foo_len()!.
+Alternatively, since we know that the function starts at line 8 of test.c, we
+could have specified
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!(gdb) break test.c:8!
+\end{adjustwidth}
+\normalsize
+In fact, you can set a breakpoint at any statement in your source files, they
+do not have to coincide with the start of a function.
+Since you typically will not know the line numbers for your source files,
+setting breakpoints at the start of a function is a very easy way to pause
+your program before a bug manifests itself.
+
+When we issue the \verb!run! command, the program starts to execute
+\verb!main()!; when \verb!foo_len()! is invoked, control returns to \verb!gdb!.
+At the \verb!gdb! prompt, we may then issue other commands.
+In this case, we invoked the \verb!print! command to see what the value
+\index{gdb@\textbf{gdb}!print command}
+is for the argument \verb!s!, which is shown to be \verb!0x0!; note that
+the function arguments are provided when the breakpoint is encountered.
+Note also that when we asked \verb!gdb! to print the value of \verb!s!, it
+printed `\verb!$1 = 0x0!'; we could equally have asked it to print the value
+of \verb!$1!, as \verb!gdb! represents the arguments to a function positionally
+as \verb!$1!, \verb!$2!, ...
+
+You can use the \verb!print! command to not only display the values of
+function arguments by name, but of any local or global variables by name,
+as well.
+If a variable is a pointer, say `\verb!struct foo *p!;', specifying
+\verb!print *p! to \verb!gdb! will cause the contents of the
+\verb!struct foo! to which \verb!p! currently points to be printed out.
+
+Any time \verb!gdb! regains control after the program starts running,
+we can continue the execution of the program by issuing the
+\verb!c! (for \textit{continue} -- \verb!continue! is also a legal command
+\index{gdb@\textbf{gdb}!continue command}
+\index{gdb@\textbf{gdb}!c|see {continue}}
+to obtain this functionality) command.
+
+We can also single step our program after execution is paused.
+There are two forms of the single step functionality:
+\begin{itemize}[noitemsep]
+\item The next line of code is executed by specifying the \verb!step! command.
+\index{gdb@\textbf{gdb}!step command}
+This will execute \emph{just} the next line of code.
+If the next line of code contains a function invocation, \verb!step!
+\emph{steps} into that function.
+This enables you to dive deep into a sequence of call frames to get to the
+bottom of your problem.
+\item You can also execute the next line of code by specifying the \verb!next!
+\index{gdb@\textbf{gdb}!next command}
+command.  
+If the next line of code contains a function invocation, using \verb!next!
+does \emph{not} step into that function.
+Thus, \verb!next! simply enables you to step through the current function. 
+\end{itemize}
+
+Typing \verb!step! or \verb!next! many times is extremely tedious.
+\verb!gdb! interprets a bare carriage return to mean
+``re-execute the previous command''.
+Thus, if you need to step/next through many lines of code, repeatedly typing
+\verb!RETURN! will eliminate a bit of the tedium.
+
+We can clear a breakpoint by issuing the \verb!clear! command; this command
+\index{gdb@\textbf{gdb}!clear command}
+requires the same argument as used in a \verb!break! command to set the
+breakpoint.
+In our example above, a `\verb!clear foo_len!' command will remove
+the breakpoint set upon entry to \verb!foo_len()!.
+
+Breakpoints permit \verb!gdb! to regain control when a statement is about
+to be executed.
+Another way for \verb!gdb! to regain control is through \emph{watchpoints}.
+A watchpoint allows you to monitor the values of variables, pausing the program
+when a watched variable changes value.
+
+To set a watchpoint, you use the \verb!watch! command:
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!(gdb) watch my_var!
+\end{adjustwidth}
+\normalsize
+\index{gdb@\textbf{gdb}!watch command}
+Now, whenever \verb!my_var!'s value is modified, the program is paused and the
+old and new values are printed.
+\verb!gdb! interprets the scope of the variable name in a \verb!watch! command
+based upon the program scope at the time the \verb!watch! command is executed.
+This means that you can set watchpoints for global variables before running the
+program; if you wish to set a watchpoint for a static local variable within
+a function, you need to set a breakpoint for that function, set a watchpoint
+for that variable when the function is entered the first time, and then clear
+the breakpoint.
+
+There are a multitude of other features provided by \verb!gdb!.
+Please consult materials at
+\url{https://www.gnu.org/software/gdb/documentation/}
+as you become familiar with \verb!gdb!.
+
+\section{Managing heap memory}
+Valgrind is a program-execution monitoring framework.
+\index{commands@\textbf{commands}!valgrind}
+It comes with many tools; the tool upon which we are focused is the
+\emph{memcheck} tool.
+
+Memcheck detects and reports the following types of memory errors:
+\begin{itemize}[noitemsep]
+\item Use of unitialized memory.
+\item Reading/writing to heap memory after it has been freed.
+\item Reading/writing off the end of malloc'd blocks.
+\item Heap allocated memory leaks.
+\item Mismatched use of malloc vs free.
+\item And many more ...
+\end{itemize}
+
+\subsection{Invoking \texttt{valgrind}}
+To test whether `\verb!prog arguments!' correctly allocates and uses
+memory, we run it with \verb!valgrind! as follows:
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!$ valgrind prog arguments!
+\end{adjustwidth}
+\normalsize
+As with \verb!gdb!, the source files must be compiled with the \verb!-g! flag
+to \verb!gcc!.
+\index{valgrind@\textbf{valgrind}!-g flag to gcc}
+\verb!valgrind! supports a large number of options; the user manual may be
+consulted at \url{http://valgrind.org/docs/manual/manual.html}.
+
+\subsection{Use of unitialized memory}
+\verb!valgrind! keeps track of each program variable and each block allocated by
+\verb!malloc()! to determine when that variable/block has been written to.
+If your program attempts to read from a variable or heap block before it
+has been initialized, \verb!valgrind! will flag each occurrence appropriately.
+\index{valgrind@\textbf{valgrind}!uninitialized memory check}
+
+Consider the following program.
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/valgrind/uninit.c}
+\end{adjustwidth}
+\normalsize
+
+When executed by \verb!valgrind!, the following output results:
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/valgrind/uninit.log}
+\end{adjustwidth}
+\normalsize
+As you can see, \verb!valgrind! indicates that there an
+unitialized value was used in main, at line 8 of uninit.c.
+
+\subsection{Reading/writing to heap memory after it has been freed}
+\verb!valgrind! keeps track of each \verb!malloc()! allocated block
+to determine when it is returned to the heap.
+\index{valgrind@\textbf{valgrind}!writes to freed memory}
+Attempts to access an already freed heap block cause
+\verb!valgrind! to flag each occurrence appropriately.
+
+Consider the following program.
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/valgrind/alreadyfree.c}
+\end{adjustwidth}
+\normalsize
+When executed by \verb!valgrind!, the following output results:
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/valgrind/alreadyfree.log}
+\end{adjustwidth}
+\normalsize
+Apparently, \verb!strcpy! attempts to access the first and last byte of the
+destination string, thus causing \verb!valgrind! to flag two invalid writes.
+
+\subsection{Reading/writing off the end of malloc'd blocks}
+
+\verb!valgrind! keeps track of the length of each \verb!malloc()!
+allocated block to check for attempted access beyond the allocation.
+Such attempts cause
+\verb!valgrind! to flag each occurrence appropriately.
+\index{valgrind@\textbf{valgrind}!access beyond allocation}
+
+Consider the following program.
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/valgrind/overrun.c}
+\end{adjustwidth}
+\normalsize
+When executed by \verb!valgrind!, the following output results:
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/valgrind/overrun.log}
+\end{adjustwidth}
+\normalsize
+This program shows the typical cause of these overrun problems -- forgetting
+to allocate space for the 0-byte at the end of a string.
+Another common source of this problem is to allocate an array of
+\emph{n} items in a heap
+memory block, and then attempt to use \emph{n} as an index into that block,
+forgetting that the array is indexed by \emph{0 .. n-1}.
+
+\subsection{Heap allocated memory leaks}
+
+\verb!valgrind! keeps track of each \verb!malloc()! allocated block
+to determine when it is returned to the heap.
+Attempts to terminate the program when there are still outstanding
+allocations cause
+\verb!valgrind! to flag those occurrences.
+\index{valgrind@\textbf{valgrind}!memory leaks}
+
+Consider the following program.
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/valgrind/memleak.c}
+\end{adjustwidth}
+\normalsize
+When executed by \verb!valgrind!, the following output results:
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/valgrind/memleak.log}
+\end{adjustwidth}
+\normalsize
+If you wish to see details of leaked memory, use the following invocation:
+\small
+\begin{adjustwidth}{1cm}{}
+\verb!$ valgrind --leak-check=full prog arguments!
+\end{adjustwidth}
+\normalsize
+\index{valgrind@\textbf{valgrind}!-{}-leak-check=full}
+
+\subsection{Mismatched use of malloc vs free}
+
+\verb!valgrind! keeps track of each \verb!malloc()! allocated block
+to determine when it is returned to the heap.
+Attempts to free memory that is not allocated (e.g. has already been
+\verb!free()!'ed or is an address that does not reside on the heap)
+cause \verb!valgrind! to flag those occurrences.
+\index{valgrind@\textbf{valgrind}!double frees}
+
+Consider the following program.
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/valgrind/dblfree.c}
+\end{adjustwidth}
+\normalsize
+When executed by \verb!valgrind!, the following output results:
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/valgrind/dblfree.log}
+\end{adjustwidth}
+\normalsize
+
+\subsection{General advice}
+\verb!valgrind! is an enormously useful tool.
+Nearly every sophisticated C program makes extensive use of the heap;
+it is essential that all memory allocation and use errors be eliminated
+from your programs.
+
+The previous sections have demonstrated how different types of memory misuse
+manifest themselves in the output from \verb!valgrind!.
+The only time you should be satisfied that you have eliminated all problems
+with your memory use is if the output from \verb!valgrind! looks like the
+following dialog.
+\small
+\begin{adjustwidth}{1cm}{}
+\verbatiminput{c/valgrind/allok.log}
+\end{adjustwidth}
+\normalsize

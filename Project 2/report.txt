@@ -1,0 +1,5 @@
+Name: Hans Prieto
+
+Duck ID: hansp
+
+Current state of solution: My solution works correctly and passes all the tests in tscript.

@@ -1,0 +1,26 @@
+student name: prietohans
+total marks: 50
+penalty(%): 0
+final mark: 50
+
+ 5 report is consistent with behavior of scripts
+ 1 sgrep.py passes test a
+ 2 sgrep.py passes test b
+ 2 sgrep.py passes test c
+ 2 sgrep.py passes test d
+ 2 sgrep.py passes test e
+ 3 sgrep.py passes test f
+ 2 sgrep.py passes test g
+ 4 sgrep.py passes test h
+ 3 sgrep.py passes test i
+ 3 sgrep.py passes test j
+ 3 sgrep.py passes test k
+ 3 sgrep.py passes test l
+ 5 sgrep.py passes test m
+ 3 appropriate test for __name__
+ 4 matching logic disjoint from main()
+ 3 appropriate function annotations
+ 0 corrections described below
+
+comments
+* well done

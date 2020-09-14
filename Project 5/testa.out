@@ -1,0 +1,6 @@
+jsFree 3460 calls
+jsMalloc 3463 calls
+jsStrchr 16545 calls
+jsStrcpy 392 calls
+jsStrdup 2395 calls
+jsStrlen 3178 calls

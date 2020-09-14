@@ -1,0 +1,391 @@
+An Actor Language 
+%
+
+The Cache demonstrated 
+% \cite{Koliousis:2012:DEBS}  % Redundant here
+that an embedded,
+stateful language could support concise, understandable processing of
+complex events, combining advantages of temporal databases and pub/sub
+middleware systems with far better performance than other
+implementations of either \cite{Sventek:2012:UPS}.    Even with on-the-fly
+translation to a simple interpreted stack machine code, the Cache with
+GAPL outperformed other pub/sub systems by avoiding heavyweight
+process context changes, efficiently running automata in threads
+within a single Unix process.  GAPL programs were more concise and
+readable than complex non-procedural temporal database code for complex events,
+while still providing the essential capability of accessing a sliding
+window of past events.  The success of the Cache with GAPL inspired us
+to extend and adapt this approach for embedded systems including
+robotics.   An actor language, informed by experience with GAPL,  is
+a central component of our 
+approach. 
+
+Our actor language, under development, is conservative in many
+respects, borrowing approaches from contemporary languages (e.g.,
+type inference as in Kotlin, Swift, and other recent languages to
+provide strong static typing without excessive declaration verbiage)
+and innovating only where there is a clear benefit to our goal of
+supporting embedded system development.  Key attributes of our
+language include: 
+
+%\begin{bullets}
+\begin{itemize}[noitemsep, topsep=0pt]
+\item As in GAPL, the key role of an actor (``automaton'' in GAPL) is
+  to statefully react to each message on a given pub/sub topic.
+  Actors can be initialized before receiving the first message, and
+  thereafter can maintain local state from message to message. They
+  can publish zero or more messages on each response cycle.  Actors
+  have access to a sliding 
+  window of past messages as in a temporal database. 
+
+\item The actor language is designed to be both interpreted, 
+  for quickest experimentation in the development environment, 
+  and translated to native code for higher performance.
+  Translation options include a kind of inlining that elides
+  communication, removing the performance penalty
+  for writing very modular actors that perform simple event filtering and
+  aggregation.   
+
+\item pub/sub message schemas are statically typed (although the new
+  schemas can be introduced interactively in the development
+  environment).   The simple type system can be viewed as data-only
+  classes, with a typical subtype relation.   The language ensures 
+  shared-nothing semantics despite actors executing in a shared 
+  address space.  
+
+\item Actor code is also statically and strongly typed.  Simple type
+  inference (as in many contemporary languages) allows static typing
+  without burdensome declarations for most local variables. 
+  Note that statically typed messages are unusual in pub/sub systems,
+  and reflect the domains that we address as well as the kinds of
+  support we intend to provide in the development environment.
+  Messages transmitted within a single cache (in one Unix process) do
+  not require marshalling and unmarshalling of data, and the cost of
+  remapping is very small (in the case of interpreted code) to
+  nonexistant (when an actor is optimized for a known topology). 
+
+\item A foreign function interface for code following C linkage
+  conventions permits reuse of large amounts of pre-existing code from
+  existing robotics and embedded ecosystems (e.g., Arduino and ROS).
+  One could write large, complex actors, but typically
+  actor code will be primarily concerned with communication and state
+  management. Foreign functions could in principle violate the
+  shared-nothing semantics of actors, but only by violating API usage
+  rules. 
+
+\item The actor language includes a module interconnection language to
+  control instantiation and connection of actors.  While loose
+  coupling is seen as an advantage of pub/sub systems, in practice
+  they can develop implicit dependency.  Explicit conversions
+  between unrelated but compatible schemas are possible in module 
+  connections to  prevents brittleness and 
+  facilitate some simple ``pipe fitting''.  By
+  default topics and field names are mapped to themselves to avoid
+  unnecessary verbiage.   
+%\end{bullets}
+\end{itemize}
+The small example in Figure~\ref{fig-actor-position} illustrates the
+basic structure of an actor that converts a stream of WGS84 (latitude and
+longitude) records to UTM (meters east and north of a reference
+point).  The actual calculations are performed by C functions that may
+be reused from the ROS geodesey library and Arduino GPS access
+libraries.  Since UTM coordinates are only useful within a fixed
+region, and all participants in a computation must share the reference 
+region, the UTM zone and band are parameters provided at
+instantiation.  The main loop of the actor receives messages
+ topics nmea\_rmc and nmea\_gga, 
+associated with message schemas that share a set of subfields in
+nmea\_basic (Figure~\ref{fig-nmea}), and those fields are visible
+within the main response loop of the actor.  After dropping readings
+of insufficient quality, the remaining readings are converted to UTM
+in the selected region and republished on topic utm\_pos. 
+
+\begin{figure}
+{\scriptsize
+\begin{verbatim}
+import (C) gps_configure();   
+import (C) latlon_to_utm(lat, lon: float, zone: int,
+    band: char)  : { easting, northing: float };
+
+import nmea;         
+
+actor position_observer (utm_zone: int, utm_band: char) {
+    subscribes nmea_rmc, nmea_gga 
+    publishes utm_pos : { obsv_time: time, easting, northing: float,  zone: int, band: char }, 
+        gps_down: { }, gps_up: { } // bare events, just timestamps
+  initially  { up = true;  bad_count = 0; }
+  each nmea_rmc, nmea_gga as msg {
+    if msg.good {
+       if not up { publish gps_up(); up = true; }
+       utm = latlon_to_utm(msg.latitude, msg.longitude,
+           utm_zone, utm_band);
+       publish utm_pos( msg.time_of_fix, utm.easting, 
+           utm.northing,  utm_zone, utm_band );
+    } else {
+        bad_count += 1;
+        if bad_count > 10 and up { up = false; publish gps_down(); }
+    }
+  }
+}
+\end{verbatim}
+} %scriptsize
+\vskip -2em
+\caption{\small Example actor definition}
+\label{fig-actor-position}
+\end{figure}
+
+
+\begin{figure}
+{\scriptsize
+%\begin{lstlisting}
+\begin{verbatim}
+schema nmea_basic_msg  {
+    time_of_fix: time,  // Distinct from implicit field "time" 
+    good: boolean,      // Combine fix and dilution  
+    latitude: float64,  // WGS 84, signed
+    longitude: float64  // WGS 84, signed
+}
+
+schema nmea_rmc_msg : nmea_basic_msg {
+      meters_sec: float, // from speed over ground
+      course: float,     // degrees from true north
+}
+
+def nmea_rmc : topic nmea_rmc_msg;
+
+def nmea_gga : topic extends nmea_basic_msg {
+      n_satellites: int, 
+      h_dilution: int,   // 1,2 excellent, 2-5 good, 5-10 fair precision
+}
+\end{verbatim}
+} %scriptsize
+\vskip -1em
+\caption{\small Schema definitions for example actor}
+\vspace{-10pt}
+\label{fig-nmea}
+\end{figure}
+
+\Subsubsec{Compiling Actors}
+\label{sec:compilingactors}
+
+The GAPL actor language of the original Cache is translated on the fly
+into bytecode for a virtual stack machine.  An external registering
+process (which could be a component process, a console, or a more
+complete development environment) transmits source code to the cache
+process and receives in return either a handle for receiving results
+or a description of errors in the actor code.  A bytecode interpreter
+is launched in its own thread with the Cache process (thus in a shared
+memory space, with the possibility of parallelism on a multi-core
+processor but without the expense of full process context switches).
+The savings in context switch overhead far outweighs the cost of
+interpretation.
+
+We will support
+just-in-time and ahead-of-time translation of automata to native code
+as well as integration of other trusted native code modules. Dynamic
+composition of components in a pub/sub system has advantages in 
+development, such as capturing event streams and replaying them for
+regression tests, so we will retain that fundamental capability.  We
+will also supporting ``sealing'' of selected modules to permit greater 
+optimization (e.g., optimizing away communication and thread
+switches).  The programming model will be identical for dynamically
+configured modules and those that are ``baked in'' to a Cache process;
+the observable differences will be in the time required to modify the
+configuration (fastest for interpreted automata, slower for compiled
+automata, slowest for those that have been baked into the system) and
+their run-time performance (fastest for baked-in, slowest for
+interpreted automata).  
+
+\Subsubsec{Actor Inlining}
+
+While dynamic establishment of communication speeds development,
+additional optimizations become possible when 
+the communication topology is fixed.  The module interconnection
+language permits specifying that a topic is sealed off, meaning that
+no additional actors may subscribe or publish to it.   Sealing topics
+enables some additional optimizations, the most important of which is
+that some actors can be effectively inlined in others, eliminating
+some communication and thread switches entirely.\footnote{The extreme
+  case of inlining or flattening concurrent processes is a so-called
+  synchronous language like Esterel, Signal, or Lustre.   Although we
+  do not aim for complete flattening, the ``synchrony hypothesis''
+  that the time taken for one cycle of an actor is small relative to
+  event inter-arrival time, is relevant.}
+
+
+Figure~\ref{fig-actor-inline} illustrates the basic idea with the
+simplest case, in which a single actor (here gps\_reader) published to
+a topic and a single actor (here position\_observer from
+Figure~\ref{fig-actor-position}) subscribes to the channel.
+Parameters of the inlined actor become  parameters of the
+publisher, initialization sections are merged, and the subscriber is
+incorporated at the point of communication (all with subscriber
+variables renamed to avoid clashes).  
+
+
+\begin{figure}
+{\scriptsize
+%\begin{lstlisting}
+\begin{verbatim}
+/* (a) before inlining */
+actor gps_reader ( gps_port_addr: int64 ) {
+   subscribes tick     // Frequency is set in MIL part of program
+   publishes nmea_gga
+   {
+    initially { configure_gps(gps_port_addr, "nmea_gga"); }
+    each tick {
+         nmea_sentence = gps_read(gps_port_addr);
+         publish nmea_gga(nmea_sentence);
+    }
+}
+
+/* (b) after inlining position_listener (conceptually; 
+ * inlining will be performed on internal rep, not source text)
+ */ 
+actor gps_reader ( gps_port_addr: int64, 
+                   utm_zone__1: int, utm_band__1: char) {
+   subscribes tick     // Frequency is set in MIL part of program
+   publishes utm_pos : { obsv_time: time, 
+        easting, northing: float,  zone: int, band: char }, 
+        gps_down : { } // bare event, just a timestamp
+        gps_up   : { } // "" 
+   initially { configure_gps(gps_port_addr, "nmea_gga");
+                up__1 = true;  bad_count__1 = 0; }
+   each tick {
+         nmea_sentence = gps_read(gps_port_addr);
+         // subscriber event handler inserted here
+         msg__1 = nmea_sentence; // local variables renamed 
+         if msg__1.good {
+            if not up__1 { publish gps_up(); up__1 = true; }
+            utm__1 = latlon_to_utm(msg__1.latitude,
+                 msg__1.longitude, utm_zone__1, utm_band__1);
+            publish utm_pos( msg__1.time_of_fix, utm__1.easting, 
+                 utm__1.northing,  utm_zone__1, utm_band__1 );
+         } else {
+            bad_count__1 += 1;
+            if bad_count__1 > 10 and up__1 {
+               up__1 = false; 
+               publish gps_down();
+            }
+         }
+   }
+}
+\end{verbatim}
+} %scriptsize 
+%\end{lstlisting}}
+\vskip -1em
+\caption[Inlining an actor]{\small Inlining an actor, for the simplest case
+  in which a 
+  topic (here nmea\_gga) is published by exactly one actor and 
+  subscribed by exactly one actor.  (a) Publisher before inlining.
+  (b) Publisher after inlining subscriber.  Note additional
+  parameters and initialization actions as well as actions in the 
+  event loop, all with renamed local variables.}
+\vspace{-10pt}
+\label{fig-actor-inline}
+\end{figure}
+
+
+Assuming $f$ involves no blocking communication, we might ascertain
+that enqueuing a messsage for this simple actor and triggering its
+thread is more expensive than the actual computation of $f$.   It
+would be profitable to simply incorporate the body of this actor where
+events on topic $A$ are produced. This is almost identical to 
+procedure inlining if events on
+topic $A$ are produced by only one other actor in the same Cache. 
+ In that
+case it requires only renaming local variables of the subscriber
+process (which may retain state between message receipts) and
+replacing the message transmission by an assignment.   We must
+ascertain that the subscriber does reliably execute
+quickly enough that incoporating it into the publisher will not cause
+the publisher to miss deadlines.  
+
+\Subsubsec{Module Interconnection}
+
+Software engineering researchers have long argued for describing module
+  connections separately from describing module contents or interfaces
+  \cite{DeRemer1976}, usually in a \emph{module interconnection
+    language} (MIL) separate from the programming language(s) used to
+  describe module behavior.    An initial burst of work in module
+  interconnection languages \cite{Prieto-Diaz1986} led to the
+  development of richer architecture description languages and frameworks
+  \cite{Dashofy2002}.  While this work supports
+  effective description and analysis of complex software artifacts, it
+  does not sufficiently decouple modules, as either the service provider
+  or the service user must explicitly name
+  the other and ``know'' details of its interface; complex 
+  ``dependency injection'' patterns have been devised as 
+  unsatisfactory  workarounds.  
+
+Pub/sub architectures ameliorate
+  dependency, as neither the producer of an event nor the subscriber
+  to an event need be aware of the other so long as both agree on a
+  topic (which essentially serves as a channel name) and a schema for
+  event descriptions.  Essentially, pub/sub architectures achieve a
+  particular kind of dependency injection for free, with topics and
+  schemas serving as interfaces.  While there may be no explicit
+ MIL notation, it is possible to extract a representation of event
+ flow from the connection topology (as ROS development tools do, for
+ example).  In practice, though, the endpoints of a communication may
+ still be excessively coupled.  A consumer of some set of events must
+ be aware of the topic and schemas published by its producer, and a
+ different producer may be substituted only if it uses the same topic
+ and schema (e.g., referring to the same ROS ``msg'' spec).  Thus,
+ even though neither producer nor consumer explicitly refers to the
+ other, in practice they may develop fragile dependencies.  
+
+Our actor language will provide module interconnection notation to
+further reduce coupling among components.  Contrary to the original
+MILs and later architecture description languages, our MIL will be
+part of the actor language.  Module interconnection descriptions can
+still be distinct and separate from modules and interface details, but
+processing interconnections in the language is a key enabler to making
+modularity cheap.  In particular, explicit connection descriptions in
+the language (and as importantly, ability to recognize when no more
+modules will be connected to a topic) is necessary to enable effective
+inlining of actors as described above.  
+
+Two key constraints on the MIL notation in our actor language are that
+it be suitable for dynamic interactive use (making and breaking
+connections from the console of a development environment) as well as
+in translation, and that it not impose burdensome verbiage on
+developers.  We will satisfy these constraints by making module
+interconnection a mapping with the identity 
+relation as default.  That is, if we create an instance of an actor
+that subscribes to topic $x$, then by default the topic known to that
+actor as $x$ is in fact the topic known to the Cache as $x$  (exactly
+as in typical topic-based pub/sub systems).  However, the
+instantiation operation may optionally map $x$ as seen by the actor to
+a topic $y$, and may at the same time map names of fields in the
+schema without violating the strong static typing of the language.
+Figure~\ref{fig-actor-mil} illustrates. 
+Overhead for mapping names is very small for interpreted actors and
+can be reduced to nothing for actors compiled to native code. 
+
+
+\begin{figure}
+{\scriptsize
+\begin{tabular}{p{0.4\textwidth}|p{0.5\textwidth}}
+\begin{verbatim}
+/* (a) Instantiating an actor with all   
+ *  defaults.  
+ */
+create position_observer;
+\end{verbatim}
+&
+\begin{verbatim}
+/* (b) Remapping the actor name, topics, 
+ * and selected fields of the schema.  
+ */
+create posn = position_observer[nmea_rmc=gps_1_nmea,
+    nmea_gga=none, latitude=lat, longitude=lng];
+\end{verbatim}
+\end{tabular}
+} 
+\caption{\small Connecting actors, with defaults (a) and with explicit
+  mapping (b)}
+\vspace{-10pt}
+\label{fig-actor-mil}
+\end{figure}
+

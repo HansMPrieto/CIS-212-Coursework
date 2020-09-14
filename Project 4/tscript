@@ -1,0 +1,98 @@
+#!/usr/bin/bash
+#
+# usage: ./tscript [test ...]
+#
+tests="a b c d e f g h i j k l m n"
+if [[ "$#" != "0" ]]; then
+    tests="$*"
+fi
+for t in $tests; do
+    case "$t" in
+     a) echo "Starting test a"
+        echo "Tests that it detects illegal file name, prints a stderr error message, and halts the program"
+        echo "===== ./wordperline JoeSventekIllegalFileName"
+        ./wordperline JoeSventekIllegalFileName
+        echo "===== Stopping test a"
+        ;;
+     b) echo "Starting test b"
+        echo "Tests that it detects illegal flags, prints a stderr error message, and halts the program"
+        echo "===== ./wordperline -x"
+        ./wordperline -x
+        echo "===== Stopping test b"
+        ;;
+     c) echo "Starting test c"
+        echo "Tests that it works correctly with no flags and no file names"
+        echo "===== ./wordperline"
+        ./wordperline <input | sort | uniq -c | diff - testc.out | head
+        echo "===== Stopping test c"
+        ;;
+     d) echo "Starting test d"
+        echo "Tests that it works correctly with -l and no file names"
+        echo "===== ./wordperline -l"
+        ./wordperline -l <input | sort | uniq -c | diff - testd.out | head
+        echo "===== Stopping test d"
+        ;;
+     e) echo "Starting test e"
+        echo "Tests that it works correctly with -p and no file names"
+        echo "===== ./wordperline -p"
+        ./wordperline -p <input | sort | uniq -c | diff - teste.out | head
+        echo "===== Stopping test e"
+        ;;
+     f) echo "Starting test f"
+        echo "Tests that it works correctly with -l -p and no file names"
+        echo "===== ./wordperline -l -p"
+        ./wordperline -l -p <input | sort | uniq -c | diff - testf.out | head
+        echo "===== Stopping test f"
+        ;;
+     g) echo "Starting test g"
+        echo "Tests that it works correctly with -lp and no file names"
+        echo "===== ./wordperline -lp"
+        ./wordperline -lp <input | sort | uniq -c | diff - testg.out | head
+        echo "===== Stopping test g"
+        ;;
+     h) echo "Starting test h"
+        echo "Tests that it works correctly with no flags and a single file name"
+        echo "===== ./wordperline input"
+        ./wordperline input | sort | uniq -c | diff - testh.out | head
+        echo "===== Stopping test h"
+        ;;
+     i) echo "Starting test i"
+        echo "Tests that it works correctly with -l and a single file name"
+        echo "===== ./wordperline -l input"
+        ./wordperline -l input | sort | uniq -c | diff - testi.out | head
+        echo "===== Stopping test i"
+        ;;
+     j) echo "Starting test j"
+        echo "Tests that it works correctly with -p and a single file name"
+        echo "===== ./wordperline -p input"
+        ./wordperline -p input | sort | uniq -c | diff - testj.out | head
+        echo "===== Stopping test j"
+        ;;
+     k) echo "Starting test k"
+        echo "Tests that it works correctly with -lp and a single file name"
+        echo "===== ./wordperline -lp input"
+        ./wordperline -lp input | sort | uniq -c | diff - testk.out | head
+        echo "===== Stopping test k"
+        ;;
+     l) echo "Starting test l"
+        echo "Tests that it works correctly with -l and multiple files"
+        echo "===== ./wordperline -l input input1 input2"
+        ./wordperline -l input input1 input2 | sort | uniq -c | diff - testl.out | head
+        echo "===== Stopping test l"
+        ;;
+     m) echo "Starting test m"
+        echo "Tests that it works correctly with -p and multiple files"
+        echo "===== ./wordperline -p input input1 input2"
+        ./wordperline -p input input1 input2 | sort | uniq -c | diff - testm.out | head
+        echo "===== Stopping test m"
+        ;;
+     n) echo "Starting test n"
+        echo "Tests that it works correctly with -lp and multiple files"
+        echo "===== ./wordperline -pl input input1 input2"
+        ./wordperline -pl input input1 input2 | sort | uniq -c | diff - testn.out | head
+        echo "===== Stopping test n"
+        ;;
+     *) echo $t - illegal test
+        ;;
+    esac
+done

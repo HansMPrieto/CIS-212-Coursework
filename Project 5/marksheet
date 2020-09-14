@@ -1,0 +1,23 @@
+student name: prietohans
+total marks: 50
+penalty(%): 0
+final mark: 50
+
+ 5 report is consistent with behavior of scripts
+ 3 your submission passes test a
+ 3 your submission passes test b
+ 3 your submission passes test c
+ 3 your submission passes test d
+ 3 your submission passes test e
+ 3 your submission passes test f
+ 3 your submission passes test g
+ 3 modified wordperline.c, jsheap.c, and jsstring.c successfully compile
+ 3 modified wordperline.c, jsheap.c, and jsstring.c compile with no warnings
+ 1 link phase to create wordperline is successful
+ 2 link phase is successful with no warnings
+ 5 there are no memory leaks in your program
+10 code could have worked with minor modification to the source
+ 0 corrections described below
+
+comments
+* well done
